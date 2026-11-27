@@ -1,0 +1,36 @@
+{
+    "name": "sumire",
+    "version": "26.331.0",
+    "private": true,
+    "description": "MediaWiki editing tools and Wikipedia source labels for game reviews.",
+    "type": "module",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/For-Each-Next/wp-sumire.git"
+    },
+    "license": "CC0-1.0",
+    "engines": {
+        "node": ">=26",
+        "npm": ">=11"
+    },
+    "scripts": {
+        "format": "prettier --write .",
+        "format:check": "prettier --check .",
+        "lint": "eslint .",
+        "typecheck": "tsc",
+        "test": "node --test tests/*.test.mjs",
+        "build": "node scripts/build.mjs",
+        "check:dist": "node --test tests/distribution/entrypoints.mjs",
+        "verify": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build && npm run check:dist"
+    },
+    "devDependencies": {
+        "@eslint/js": "10.0.1",
+        "@for-each-next/wp": "git+https://github.com/For-Each-Next/wp.git#da95e2826d9c459252abe12565f1c30801468167",
+        "esbuild": "0.28.2",
+        "eslint": "10.15.0",
+        "globals": "17.14.0",
+        "prettier": "3.10.1",
+        "typescript": "6.0.3",
+        "typescript-eslint": "8.74.0"
+    }
+}

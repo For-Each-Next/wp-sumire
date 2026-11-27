@@ -1,0 +1,23 @@
+name: Release
+
+on:
+    workflow_dispatch:
+        inputs:
+            tag:
+                description: Annotated product version tag
+                required: false
+                type: string
+            publish:
+                description: Publish the verified release
+                default: false
+                type: boolean
+
+permissions:
+    contents: write
+
+jobs:
+    release:
+        uses: For-Each-Next/wp/.github/workflows/release.yml@da95e2826d9c459252abe12565f1c30801468167
+        with:
+            tag: ${{ inputs.tag }}
+            publish: ${{ inputs.publish }}

@@ -1,0 +1,15 @@
+name: Verify
+
+on:
+    push:
+    pull_request:
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+jobs:
+    verify:
+        uses: For-Each-Next/wp/.github/workflows/browser.yml@da95e2826d9c459252abe12565f1c30801468167
+        with:
+            node-version: "26"

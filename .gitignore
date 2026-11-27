@@ -1,0 +1,29 @@
+# Dependencies and build output
+node_modules/
+/dist/
+*.tsbuildinfo
+
+# Test reports and tool caches
+/coverage/
+/test-results/
+/playwright-report/
+/blob-report/
+.eslintcache
+.stylelintcache
+npm-debug.log*
+
+# Local editor, assistant, and system files
+/.idea/
+/.ai/
+/.temp/
+.DS_Store
+._*
+*.swp
+*.swo
+*~
+
+# Local environment values
+.env
+.env.*
+!.env.example
+!.env.*.example
