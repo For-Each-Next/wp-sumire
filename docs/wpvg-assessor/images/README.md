@@ -21,9 +21,8 @@ use a taller viewport where needed for review controls. The script dismisses
 native variant and site notices. It opens the diff for a staged class change and submits no wiki edits.
 
 Use `--locales=en,zh-Hans` to retry the two article views. The
-[capture ledger](live-captures.json) records exact dimensions, captures, and
-checksums. Offline browser fixtures and screenshot tests are separate.
-Existing ledger entries identify the Kanade bundle used for those captures.
+[capture ledger](live-captures.json) records the bundle, dimensions, and
+checksums for each screenshot.
 
 ## Attribution
 

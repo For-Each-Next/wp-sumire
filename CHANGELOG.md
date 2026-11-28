@@ -1,5 +1,12 @@
 # Sumire changelog
 
+## 26.332.1 (2026-11-28)
+
+### Changed
+
+- Clarified which bundle, dimensions, and checksums the Article Assessor
+  screenshot ledger records.
+
 ## 26.332.0 (2026-11-28)
 
 ### Added
