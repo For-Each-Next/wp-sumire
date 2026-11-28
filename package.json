@@ -1,8 +1,8 @@
 {
     "name": "sumire",
-    "version": "26.331.0",
+    "version": "26.332.0",
     "private": true,
-    "description": "MediaWiki editing tools and Wikipedia source labels for game reviews.",
+    "description": "MediaWiki editing tools, video game article assessments, and Wikipedia source labels for game reviews.",
     "type": "module",
     "repository": {
         "type": "git",
@@ -17,20 +17,36 @@
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "lint": "eslint .",
-        "typecheck": "tsc",
-        "test": "node --test tests/*.test.mjs",
+        "typecheck": "vue-tsc --noEmit",
+        "test": "node --test tests/*.test.mjs tests/wpvg-assessor/*.test.ts tests/wpvg-assessor/*.test.mjs",
         "build": "node scripts/build.mjs",
-        "check:dist": "node --test tests/distribution/entrypoints.mjs",
-        "verify": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build && npm run check:dist"
+        "check:dist": "node --test tests/distribution/*.mjs",
+        "test:ui": "playwright test",
+        "verify": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build && npm run check:dist && npm run test:ui"
     },
     "devDependencies": {
         "@eslint/js": "10.0.1",
-        "@for-each-next/wp": "git+https://github.com/For-Each-Next/wp.git#da95e2826d9c459252abe12565f1c30801468167",
+        "@for-each-next/wp": "git+https://github.com/For-Each-Next/wp.git#c3152e19c67a40348db3bfb3bf8329fd5e4469d8",
+        "@playwright/test": "1.65.1",
+        "@types/node": "24.19.4",
+        "@vue/compiler-sfc": "3.5.46",
+        "@wikimedia/codex": "2.8.0",
+        "@wikimedia/codex-icons": "2.8.0",
+        "diff": "9.0.0",
         "esbuild": "0.28.2",
         "eslint": "10.15.0",
         "globals": "17.14.0",
+        "jsdom": "31.0.1",
         "prettier": "3.10.1",
+        "types-mediawiki": "2.1.0",
         "typescript": "6.0.3",
-        "typescript-eslint": "8.74.0"
+        "typescript-eslint": "8.74.0",
+        "vue": "3.5.46",
+        "vue-tsc": "3.3.14"
+    },
+    "overrides": {
+        "types-mediawiki": {
+            "vue": "$vue"
+        }
     }
 }

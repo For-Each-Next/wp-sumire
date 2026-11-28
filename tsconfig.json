@@ -1,12 +1,15 @@
 {
     "compilerOptions": {
         "strict": true,
-        "module": "NodeNext",
-        "target": "ES2022",
-        "lib": ["ES2022", "DOM"],
+        "module": "ESNext",
+        "moduleResolution": "Bundler",
+        "target": "ES2024",
+        "lib": ["ES2024", "DOM"],
+        "types": ["node", "types-mediawiki"],
+        "skipLibCheck": true,
         "allowImportingTsExtensions": true,
         "verbatimModuleSyntax": true,
         "noEmit": true
     },
-    "include": ["src/**/*.ts"]
+    "include": ["src/**/*.ts", "src/**/*.vue", "tests/wpvg-assessor/**/*.ts"]
 }

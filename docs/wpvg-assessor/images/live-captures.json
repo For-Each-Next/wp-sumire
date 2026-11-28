@@ -1,0 +1,147 @@
+{
+    "capturedAt": "2026-11-26T04:32:47.638Z",
+    "method": "Chromium navigation to actual Chinese Wikipedia pages, native MediaWiki/Vue/Codex/API/assets, built bundle injection, and browser screenshots. No simulated page content or API responses. No wiki saves.",
+    "bundleArtifact": "dist/kanade-wpvg-assessor.min.js",
+    "bundleSha256": "c860fdf8d01a7c7bab5a6be56bfe424a843196ca880fd29d77264c7f89a5b61a",
+    "pages": [
+        {
+            "title": "EliGE",
+            "locale": "en",
+            "url": "https://zh.wikipedia.org/wiki/EliGE?uselang=en&useskin=vector-2022",
+            "config": {
+                "wgPageName": "EliGE",
+                "wgRevisionId": 95764456,
+                "wgUserLanguage": "en",
+                "wgContentLanguage": "zh",
+                "skin": "vector-2022"
+            },
+            "nativeTopNotice": {
+                "selector": "#siteNotice",
+                "originalText": "中国大陆维基媒体活动Telegram群聊欢迎大家加入。",
+                "method": "Native close control"
+            },
+            "captures": [
+                {
+                    "image": "full assessment (en).png",
+                    "imageSha256": "9d01e7c8578e0bd5ba69ad9a43f6a5a81e2ae47201c6b4540c2c1da583869dce",
+                    "bundleArtifact": "dist/kanade-wpvg-assessor.min.js",
+                    "bundleSha256": "c860fdf8d01a7c7bab5a6be56bfe424a843196ca880fd29d77264c7f89a5b61a",
+                    "deviceScaleFactor": 1,
+                    "viewport": { "width": 1366, "height": 1434 },
+                    "capturedAt": "2026-11-26T04:33:00.713Z"
+                }
+            ],
+            "bundleArtifact": "dist/kanade-wpvg-assessor.min.js",
+            "bundleSha256": "c860fdf8d01a7c7bab5a6be56bfe424a843196ca880fd29d77264c7f89a5b61a",
+            "browserVersion": "153.0.8010.12",
+            "view": "full",
+            "sourceRevisions": [
+                {
+                    "title": "WikiProject:电子游戏/新进条目",
+                    "revisionId": 95818326,
+                    "timestamp": "2026-11-25T10:42:41Z"
+                },
+                {
+                    "title": "Talk:EliGE",
+                    "revisionId": 95749921,
+                    "timestamp": "2026-11-22T03:01:16Z"
+                }
+            ],
+            "edits": []
+        },
+        {
+            "title": "EliGE",
+            "locale": "zh-Hans",
+            "url": "https://zh.wikipedia.org/wiki/EliGE?uselang=zh-cn&useskin=vector-2022",
+            "config": {
+                "wgPageName": "EliGE",
+                "wgRevisionId": 95764456,
+                "wgUserLanguage": "zh-cn",
+                "wgContentLanguage": "zh",
+                "skin": "vector-2022"
+            },
+            "nativeVariantPromptDismissed": true,
+            "nativeTopNotice": {
+                "selector": "#siteNotice",
+                "originalText": "维基百科Discord、IRC、LINE、QQ及Telegram等各平台交流群欢迎大家加入。",
+                "method": "Native close control"
+            },
+            "captures": [
+                {
+                    "image": "mini assessment (zh-Hans).png",
+                    "imageSha256": "1e5199af8a9e485e2e6dc0dbe1cf7880e9b9efb062b1282635a1d78bc81bcbb0",
+                    "bundleArtifact": "dist/kanade-wpvg-assessor.min.js",
+                    "bundleSha256": "c860fdf8d01a7c7bab5a6be56bfe424a843196ca880fd29d77264c7f89a5b61a",
+                    "deviceScaleFactor": 1,
+                    "viewport": { "width": 1366, "height": 768 },
+                    "capturedAt": "2026-11-26T04:33:08.104Z"
+                }
+            ],
+            "bundleArtifact": "dist/kanade-wpvg-assessor.min.js",
+            "bundleSha256": "c860fdf8d01a7c7bab5a6be56bfe424a843196ca880fd29d77264c7f89a5b61a",
+            "browserVersion": "153.0.8010.12",
+            "previewClass": "stub",
+            "view": "mini",
+            "sourceRevisions": [
+                {
+                    "title": "WikiProject:电子游戏/新进条目",
+                    "revisionId": 95818326,
+                    "timestamp": "2026-11-25T10:42:41Z"
+                },
+                {
+                    "title": "Talk:EliGE",
+                    "revisionId": 95749921,
+                    "timestamp": "2026-11-22T03:01:16Z"
+                }
+            ],
+            "edits": []
+        },
+        {
+            "title": "Category:未评级电子游戏条目",
+            "locale": "zh-Hant",
+            "url": "https://zh.wikipedia.org/wiki/Category%3A%E6%9C%AA%E8%AF%84%E7%BA%A7%E7%94%B5%E5%AD%90%E6%B8%B8%E6%88%8F%E6%9D%A1%E7%9B%AE?uselang=zh-tw&useskin=vector-2022",
+            "config": {
+                "wgPageName": "Category:未评级电子游戏条目",
+                "wgRevisionId": 80842948,
+                "wgUserLanguage": "zh-tw",
+                "wgContentLanguage": "zh",
+                "skin": "vector-2022"
+            },
+            "nativeVariantPromptDismissed": true,
+            "nativeTopNotice": {
+                "selector": "#siteNotice",
+                "originalText": "中國大陸維基媒體活動Telegram群聊歡迎大家加入。",
+                "method": "Native close control"
+            },
+            "captures": [
+                {
+                    "image": "category assessment (zh-Hant).png",
+                    "imageSha256": "9ddd774d7eb676c1d70805b08bc6920757659e63afe4acf33618c89341e920a0",
+                    "bundleArtifact": "dist/kanade-wpvg-assessor.min.js",
+                    "bundleSha256": "c860fdf8d01a7c7bab5a6be56bfe424a843196ca880fd29d77264c7f89a5b61a",
+                    "deviceScaleFactor": 1,
+                    "viewport": { "width": 1366, "height": 768 },
+                    "capturedAt": "2026-11-26T04:33:18.361Z"
+                }
+            ],
+            "bundleArtifact": "dist/kanade-wpvg-assessor.min.js",
+            "bundleSha256": "c860fdf8d01a7c7bab5a6be56bfe424a843196ca880fd29d77264c7f89a5b61a",
+            "browserVersion": "153.0.8010.12",
+            "view": "category",
+            "previewImages": [
+                {
+                    "url": "https://upload.wikimedia.org/wikipedia/commons/f/f7/Elige.png?utm_source=zh.wikipedia.org&utm_campaign=parser&utm_content=thumbnail_unscaled",
+                    "loaded": true
+                }
+            ],
+            "contentsLinks": ["頁首", "參考文獻"],
+            "dialogWidth": 1202,
+            "previewFrameWidth": 960,
+            "previewContentWidth": 948,
+            "sourceRevisions": [],
+            "edits": []
+        }
+    ],
+    "failures": [],
+    "browserVersion": "153.0.8010.12"
+}

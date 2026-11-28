@@ -1,14 +1,17 @@
 import { isPositiveSafeInteger } from "@for-each-next/wp/mediawiki";
 import { draftHosts } from "../shared/hosts.ts";
 import { documentReady, startOnWiki } from "../shared/wiki-startup.ts";
+import { mergeWikitext } from "./merge.ts";
 import { getMessages } from "./messages.ts";
 import {
     DraftCopyError,
     findLocalReferences,
     openEditReview,
+    readCopyBase,
     readSource,
     readTarget,
     type MediaWiki,
+    type WikitextRevision,
 } from "./mediawiki.ts";
 import {
     findFileReferences,
@@ -88,25 +91,50 @@ export async function addDraftCopyAction(
                 throw new DraftCopyError("invalidTitle");
             }
             const api = new mw.Api({ parameters: { formatversion: 2 } });
-            const source = await readSource(mw, api, {
-                title,
-                pageId,
-                revisionId,
-            });
-            let text;
-            if (mirroring) {
-                const references = findFileReferences(source.text, namespaces);
+            const [source, edit] = await Promise.all([
+                readSource(mw, api, { title, pageId, revisionId }),
+                readTarget(mw, api, target),
+            ]);
+            const formatForTarget = async (revision: WikitextRevision) => {
+                const articleText =
+                    revision.namespace === draftNamespace
+                        ? publishDraft(revision.text, namespaces)
+                        : revision.text;
+                if (!mirroring) return articleText;
+                const references = findFileReferences(articleText, namespaces);
                 const local = await findLocalReferences(mw, api, references);
-                text = mirrorToDraft(
-                    source.text,
+                return mirrorToDraft(
+                    articleText,
                     articleName,
                     local,
                     namespaces,
                 );
-            } else {
-                text = publishDraft(source.text, namespaces);
+            };
+            const destination = edit.revision;
+            const [proposal, base] = await Promise.all([
+                formatForTarget(source),
+                destination
+                    ? readCopyBase(
+                          mw,
+                          api,
+                          mirroring ? source : destination,
+                          mirroring ? destination : source,
+                      )
+                    : null,
+            ]);
+            let text = proposal;
+            if (base && destination) {
+                const baseText =
+                    base === source ? proposal : await formatForTarget(base);
+                const merged = mergeWikitext(
+                    baseText,
+                    proposal,
+                    destination.text,
+                );
+                if (merged === null)
+                    throw new DraftCopyError("mergeUnavailable");
+                text = merged;
             }
-            const edit = await readTarget(mw, api, target);
             openEditReview(
                 mw,
                 document,

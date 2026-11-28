@@ -87,6 +87,11 @@ export const contributionDialogStyles = `
     padding-inline-start: calc(.65rem - 2px);
 }
 
+.sumire-contrib .contrib-entry-number {
+    font-variant-numeric: tabular-nums;
+    margin-inline-end: var(--spacing-25, .25rem);
+}
+
 .sumire-contrib .contrib-chip {
     margin-inline-start: var(--spacing-25, .25rem);
     vertical-align: middle;

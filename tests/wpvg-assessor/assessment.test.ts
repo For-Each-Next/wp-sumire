@@ -1,0 +1,1343 @@
+/**
+ * @file tests/wpvg-assessor/assessment.test.ts
+ * Purpose: Characterizes talk-page assessment transformations.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. Test scenarios
+ */
+
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+
+import projectConfig from "../../src/wpvg-assessor/domain/project-config.ts";
+import {
+    buildAssessmentBanners,
+    createDefaultAssessment,
+    getExistingOtherProjectOptions,
+    getTalkPageTopSection,
+    hasDykInviteAtTop,
+    normalizeAssessmentClass,
+    parseAssessment,
+    previewTalkPageTopSection,
+    updateTalkPageAssessment,
+    updateTalkPageTopSection,
+} from "../../src/wpvg-assessor/domain/assessment.ts";
+import { NOT_VIDEO_GAME_IMPORTANCE } from "../../src/wpvg-assessor/domain/types.ts";
+
+test("recognizes a DYK invite only among leading talk-page templates", () => {
+    assert.equal(
+        hasDykInviteAtTop(
+            "{{Talk header}}\n{{template:dyk_invite|date=2026-08-14}}",
+        ),
+        true,
+    );
+    assert.equal(
+        hasDykInviteAtTop(
+            "{{Talk header}}\n\n== Discussion ==\n{{DYK Invite}}",
+        ),
+        false,
+    );
+});
+
+test("preserves custom assessment values from recognizable source", () => {
+    const source = [
+        "{{WikiProject banner shell|class=Future|1=",
+        "{{WikiProject Video games|importance=Critical}}",
+        "}}",
+    ].join("\n");
+    const parsed = parseAssessment(projectConfig, source);
+
+    assert.ok(parsed);
+    assert.equal(parsed.className, "Future");
+    assert.equal(parsed.importance, "Critical");
+    assert.equal(parseAssessment(projectConfig, "{{Unmanaged}}"), null);
+});
+
+test("normalizes Bplus and B+ class aliases from shared and VG banners", () => {
+    const aliases = ["Bplus", "bplus", "BPLUS", "b+", "B+"];
+
+    for (const alias of aliases) {
+        const sources = [
+            `{{WPBS|class=${alias}|1={{WPVG|importance=Low}}}}`,
+            `{{WPVG|class=${alias}|importance=Low}}`,
+        ];
+
+        for (const source of sources) {
+            const parsed = parseAssessment(projectConfig, source);
+
+            assert.ok(parsed);
+            assert.equal(parsed.className, "B+", source);
+        }
+        assert.equal(normalizeAssessmentClass(`  ${alias}  `), "B+");
+    }
+
+    assert.equal(normalizeAssessmentClass("  Future  "), "Future");
+    assert.equal(normalizeAssessmentClass("  start  "), "Start");
+    assert.equal(normalizeAssessmentClass("  "), null);
+    assert.equal(normalizeAssessmentClass(null), null);
+});
+
+test("keeps new-page VG defaults and parses a shared class without a VG banner", () => {
+    assert.equal(createDefaultAssessment(projectConfig).importance, "");
+    assert.equal(
+        createDefaultAssessment(projectConfig, "{{Talk header}}\nLead text")
+            .importance,
+        "",
+    );
+
+    const source = "{{WPBS|class=b}}";
+    const assessment = parseAssessment(projectConfig, source);
+
+    assert.ok(assessment);
+    assert.equal(assessment.className, "B");
+    assert.equal(assessment.importance, NOT_VIDEO_GAME_IMPORTANCE);
+    assessment.className = "C";
+
+    const result = updateTalkPageAssessment(source, assessment, projectConfig);
+
+    assert.equal(result, "{{WikiProject banner shell|class=C|1=\n}}");
+    assert.equal(
+        parseAssessment(projectConfig, result)?.importance,
+        NOT_VIDEO_GAME_IMPORTANCE,
+    );
+    assert.equal(
+        updateTalkPageAssessment(result, assessment, projectConfig),
+        result,
+    );
+});
+
+test("can add only ACG while assigning a shared class", () => {
+    const assessment = createDefaultAssessment(projectConfig);
+
+    assessment.className = "Start";
+    assessment.importance = NOT_VIDEO_GAME_IMPORTANCE;
+    assessment.otherProjects.acg = true;
+    assessment.taskForces.pokemon = true;
+    assessment.maintenance.reassess = true;
+
+    const result = updateTalkPageAssessment("", assessment, projectConfig);
+
+    assert.equal(
+        result,
+        "{{WikiProject banner shell|class=Start|1=\n{{ACG專題}}\n}}\n",
+    );
+    assert.doesNotMatch(result, /importance|Pokemon|reassess|NotVG/u);
+});
+
+test("recognizes and preserves a standalone secondary project's assessment", () => {
+    const banner =
+        "{{WPACG|class=c|importance=High|custom={{Keep|value=yes}}}}";
+    const source = `${banner}\n\n== Discussion ==\nKeep this discussion.`;
+    const assessment = parseAssessment(projectConfig, source);
+
+    assert.ok(assessment);
+    assert.equal(assessment.className, "C");
+    assert.equal(assessment.importance, NOT_VIDEO_GAME_IMPORTANCE);
+    assert.equal(assessment.otherProjects.acg, true);
+    assessment.className = "B";
+
+    assert.equal(
+        updateTalkPageAssessment(source, assessment, projectConfig),
+        `{{WikiProject banner shell|class=B|1=\n${banner}\n}}\n\n== Discussion ==\nKeep this discussion.`,
+    );
+});
+
+test("removes a deselected standalone secondary banner without changing retained source", () => {
+    const acg = "{{WPACG|class=C|custom={{Keep|value=yes}}}}";
+    const biography = "{{WikiProject Biography|living=yes|custom=Keep}}";
+    const source = `${acg}\n${biography}\n\n== Discussion ==\nKeep this discussion.`;
+    const assessment = createDefaultAssessment(projectConfig, source);
+
+    assessment.otherProjects.acg = false;
+
+    assert.equal(
+        updateTalkPageAssessment(source, assessment, projectConfig),
+        `{{WikiProject banner shell|class=C|1=\n${biography}\n}}\n\n== Discussion ==\nKeep this discussion.`,
+    );
+});
+
+test("removes all configured VG aliases while preserving other projects and lead content", () => {
+    const aliases = [
+        "WikiProject Video games",
+        "電子遊戲專題",
+        "电子游戏专题",
+        "WPVG",
+        "WikiProject Square Enix",
+        "WikiProject Electronic games",
+        "模板:WPVG",
+    ];
+    const standaloneAcg = "{{WPACG|custom=yes}}";
+    const nestedMusic = "{{音樂專題|importance=High|custom=yes}}";
+    const nestedOther = "{{WikiProject Role-playing games|custom=yes}}";
+    const source = [
+        "{{Talk header}}",
+        ...aliases.map((alias) => `{{${alias}|class=B|importance=Low}}`),
+        standaloneAcg,
+        "{{WikiProject banner shell|class=B|1=",
+        nestedMusic,
+        ...aliases.map((alias) => `{{${alias}|importance=Low|SEGA=yes}}`),
+        nestedOther,
+        "}}",
+        "{{Unmanaged banner|custom=yes}}",
+        "Lead text with {{WPVG}} mentioned outside an assessment banner.",
+        "",
+        "== Discussion ==",
+        "Keep {{WPVG}} in this discussion exactly.",
+    ].join("\n");
+    const assessment = createDefaultAssessment(projectConfig, source);
+
+    assert.equal(assessment.importance, "Low");
+    assessment.importance = NOT_VIDEO_GAME_IMPORTANCE;
+    assessment.className = "C";
+
+    const result = updateTalkPageAssessment(source, assessment, projectConfig);
+    const expected = [
+        "{{Talk header}}",
+        "{{WikiProject banner shell|class=C|1=",
+        standaloneAcg,
+        nestedMusic,
+        nestedOther,
+        "}}",
+        "{{Unmanaged banner|custom=yes}}",
+        "Lead text with {{WPVG}} mentioned outside an assessment banner.",
+        "",
+        "== Discussion ==",
+        "Keep {{WPVG}} in this discussion exactly.",
+    ].join("\n");
+
+    assert.equal(result, expected);
+    const reparsed = parseAssessment(projectConfig, result);
+
+    assert.ok(reparsed);
+    assert.equal(reparsed.importance, NOT_VIDEO_GAME_IMPORTANCE);
+    assert.equal(
+        updateTalkPageAssessment(result, reparsed, projectConfig),
+        result,
+    );
+
+    reparsed.importance = "Mid";
+    const restored = updateTalkPageAssessment(result, reparsed, projectConfig);
+
+    assert.match(restored, /\{\{WikiProject Video games\|importance=Mid\}\}/u);
+    assert.match(restored, /\{\{WPACG\|custom=yes\}\}/u);
+});
+
+test("preserves unmanaged banners and talk-page discussion content", () => {
+    const source = [
+        "{{WikiProject banner shell|class=B|1=",
+        "{{WikiProject Anime}}",
+        "{{WikiProject Video games|importance=Low|Sega=yes}}",
+        "}}",
+        "{{Unmanaged banner|custom=yes}}",
+        "",
+        "== Discussion ==",
+        "Keep this discussion exactly.",
+    ].join("\n");
+    const assessment = createDefaultAssessment(projectConfig);
+
+    assessment.className = "Start";
+    assessment.importance = "Mid";
+    assessment.taskForces.pokemon = true;
+
+    const result = updateTalkPageAssessment(source, assessment, projectConfig);
+
+    assert.match(result, /\{\{WikiProject Anime\}\}/u);
+    assert.match(result, /\{\{Unmanaged banner\|custom=yes\}\}/u);
+    assert.match(
+        result,
+        /\{\{WikiProject Video games\|importance=Mid\|Pokemon=yes\}\}/u,
+    );
+    assert.doesNotMatch(result, /Sega=yes/u);
+    assert.equal(
+        result.slice(result.indexOf("== Discussion ==")),
+        "== Discussion ==\nKeep this discussion exactly.",
+    );
+});
+
+test("adds assessment banners after an indented deletion-history template", () => {
+    const existing = "{{Old vfd multi|2026/10/03|sk}}";
+    const source = ` ${existing}`;
+    const assessment = createDefaultAssessment(projectConfig, source);
+
+    assessment.taskForces.minecraft = true;
+    assessment.otherProjects.biography = true;
+
+    assert.equal(
+        updateTalkPageAssessment(source, assessment, projectConfig),
+        [
+            existing,
+            "{{WikiProject banner shell|class=Unassessed|1=",
+            "{{WikiProject Biography}}",
+            "{{WikiProject Video games|importance=|Minecraft=yes}}",
+            "}}",
+        ].join("\n"),
+    );
+});
+
+test("removes indentation at the updated assessment shell boundary only", () => {
+    const shell = [
+        "{{WikiProject banner shell|class=Unassessed|1=",
+        "{{WikiProject Biography}}",
+        "{{WikiProject Video games|importance=|Minecraft=yes}}",
+        "}}",
+    ].join("\n");
+    const remainder = [
+        "{{Unmanaged lead|keep=yes}}",
+        "  <!-- Preserve this note and the following template spacing. -->",
+        "  {{Unmanaged banner|custom=yes}}",
+        "",
+        "== Discussion ==",
+        "    Preserve this intentionally indented discussion text.",
+    ].join("\n");
+    const separators = [
+        ["\n    \n    ", "\n\n"],
+        ["\r\n\t \r\n \t", "\r\n\r\n"],
+        [" \t ", " \t "],
+    ];
+
+    for (const [separator, cleanedSeparator] of separators) {
+        const source = `${shell}${separator}${remainder}`;
+        const assessment = createDefaultAssessment(projectConfig, source);
+        const expected = `${shell}${cleanedSeparator}${remainder}`;
+        const result = updateTalkPageAssessment(
+            source,
+            assessment,
+            projectConfig,
+        );
+
+        assert.equal(result, expected);
+        assert.equal(
+            updateTalkPageAssessment(result, assessment, projectConfig),
+            expected,
+        );
+    }
+});
+
+test("recognizes zhwiki template namespace aliases", () => {
+    const source = [
+        "{{T:WikiProject banner shell|class=B|1=",
+        "{{樣板:WikiProject Anime}}",
+        "{{模板:WikiProject Video games|importance=Low|Sega=yes}}",
+        "}}",
+        "",
+        "== Discussion ==",
+        "Body",
+    ].join("\n");
+    const assessment = createDefaultAssessment(projectConfig);
+
+    assessment.className = "C";
+    assessment.importance = "High";
+    const result = updateTalkPageAssessment(source, assessment, projectConfig);
+
+    assert.match(result, /\{\{樣板:WikiProject Anime\}\}/u);
+    assert.match(
+        result,
+        /\{\{模板:WikiProject Video games\|importance=High\}\}/u,
+    );
+    assert.doesNotMatch(result, /Sega=yes/u);
+});
+
+test("reassesses a shell after unmanaged lead templates in place", () => {
+    const source = [
+        "{{DYKtalk|date=2026-07-26}}",
+        "{{WikiProject banner shell|class=Unassessed|1=",
+        "{{WikiProject Electronic games|MiHoYo=yes|importance=low}}",
+        "{{WikiProject Fictional characters}}",
+        "}}",
+        "{{Refideas|{{cite web|title=Source|url=https://example.com}}}}",
+    ].join("\n");
+    const assessment = createDefaultAssessment(projectConfig, source);
+
+    assert.equal(assessment.className, "Unassessed");
+    assert.equal(assessment.importance, "Low");
+    assert.equal(assessment.taskForces.mihoyo, true);
+    assert.equal(assessment.otherProjects.fictionalCharacters, true);
+
+    assessment.className = "B";
+
+    assert.equal(
+        updateTalkPageAssessment(source, assessment, projectConfig),
+        source.replace("class=Unassessed", "class=B"),
+    );
+});
+
+test("reassesses the supplied BanG Dream talk lead without changing unmanaged source", () => {
+    const source = readFileSync(
+        new URL("./fixtures/bang-dream-talk-lead.wikitext", import.meta.url),
+        "utf8",
+    );
+    const assessment = parseAssessment(projectConfig, source);
+
+    assert.ok(assessment);
+    assert.equal(assessment.className, "FA");
+    assert.equal(assessment.importance, "Low");
+    assert.equal(assessment.otherProjects.acg, true);
+    assert.equal(assessment.otherProjects.music, true);
+    assert.equal(assessment.otherProjects["existing:日本专题"], true);
+
+    assessment.importance = "Mid";
+
+    const result = updateTalkPageAssessment(source, assessment, projectConfig);
+    const expected = source
+        .replace(
+            "{{WikiProject banner shell|class=FA|\n",
+            "{{WikiProject banner shell|class=FA|1=\n",
+        )
+        .replace(
+            "{{WikiProject Video games |importance=Low}}",
+            "{{WikiProject Video games |importance=Mid}}",
+        );
+
+    assert.equal(result, expected);
+    assert.equal(parseAssessment(projectConfig, result)?.className, "FA");
+    assert.equal(parseAssessment(projectConfig, result)?.importance, "Mid");
+});
+
+test("moves a standalone Articles for creation banner into the shell", () => {
+    const articlesForCreation = [
+        "{{WikiProject Articles for creation|class=start",
+        "|ts=20260814090210|reviewer=断岸千尺|oldid=93888495}}",
+    ].join("");
+    const source = [
+        articlesForCreation,
+        "{{WikiProject Video games|class=start}}",
+    ].join("\n");
+    const assessment = createDefaultAssessment(projectConfig, source);
+    const expected = [
+        "{{WikiProject banner shell|class=Start|1=",
+        articlesForCreation,
+        "{{WikiProject Video games|importance=}}",
+        "}}",
+    ].join("\n");
+    const result = updateTalkPageAssessment(source, assessment, projectConfig);
+
+    assert.equal(assessment.className, "Start");
+    assert.equal(result, expected);
+    assert.equal(
+        updateTalkPageAssessment(result, assessment, projectConfig),
+        expected,
+    );
+});
+
+test("integrates the standalone AfC and duplicate video-game fixture", () => {
+    const articlesForCreation =
+        "{{WikiProject Articles for creation|class=start|" +
+        "ts=20260814090210|reviewer=断岸千尺|oldid=93888495}}";
+    const standalone = "{{WikiProject Video games|class=start}}";
+    const nested = "{{WikiProject Video games|importance=}}";
+    const source = [
+        articlesForCreation,
+        standalone,
+        "",
+        "{{WikiProject banner shell|class=Unassessed|1=",
+        nested,
+        "}}",
+    ].join("\n");
+    const assessment = createDefaultAssessment(projectConfig, source);
+    const expected = [
+        "{{WikiProject banner shell|class=Unassessed|1=",
+        articlesForCreation,
+        nested,
+        "}}",
+    ].join("\n");
+    const result = updateTalkPageAssessment(source, assessment, projectConfig);
+
+    assert.equal(result, expected);
+    assert.equal(result.match(/WikiProject Video games/gu)?.length, 1);
+});
+
+test("collapses duplicate banners and preserves nested source", () => {
+    const source = [
+        "{{WikiProject banner shell|class=B|1=",
+        "{{WikiProject Role-playing games|note={{Nested|x=y}}}}",
+        "{{WikiProject Video games|importance=Low|Sega=yes}}",
+        "{{WikiProject Video games|importance=Top|Pokemon=yes}}",
+        "}}",
+    ].join("\n");
+    const assessment = createDefaultAssessment(projectConfig, source);
+
+    assert.deepEqual(parseAssessment(projectConfig, source), assessment);
+    assert.equal(
+        updateTalkPageAssessment(source, assessment, projectConfig),
+        [
+            "{{WikiProject banner shell|class=B|1=",
+            "{{WikiProject Role-playing games|note={{Nested|x=y}}}}",
+            "{{WikiProject Video games|importance=Low|Sega=yes}}",
+            "}}",
+        ].join("\n"),
+    );
+});
+
+test("treats an unclosed assessment shell as opaque source", () => {
+    const source = [
+        "{{WikiProject banner shell|class=C|1=",
+        "{{WikiProject Video games|importance=High}",
+        "== Discussion ==",
+        "Body",
+    ].join("\n");
+    const assessment = createDefaultAssessment(projectConfig, source);
+    const banners = buildAssessmentBanners(assessment, projectConfig, source);
+
+    assert.equal(parseAssessment(projectConfig, source), null);
+    assert.equal(
+        updateTalkPageAssessment(source, assessment, projectConfig),
+        `${banners}\n\n${source}`,
+    );
+});
+
+test("keeps one raw AfC banner when sources duplicate", () => {
+    const outer =
+        "{{WikiProject Articles for creation|class=start|reviewer=Outer}}";
+    const nested =
+        "{{WikiProject Articles for creation|class=start|reviewer=Nested}}";
+    const source = [
+        outer,
+        "{{WikiProject banner shell|class=Start|1=",
+        nested,
+        "{{WikiProject Video games|importance=Low}}",
+        "}}",
+    ].join("\n");
+    const assessment = createDefaultAssessment(projectConfig, source);
+    const result = updateTalkPageAssessment(source, assessment, projectConfig);
+
+    const articlesForCreationCalls = result.match(
+        /WikiProject Articles for creation/gu,
+    );
+
+    assert.equal(articlesForCreationCalls?.length, 1);
+    assert.match(result, /reviewer=Outer/u);
+    assert.doesNotMatch(result, /reviewer=Nested/u);
+});
+
+test("adds controls for other conventional banners inside the shell", () => {
+    const source = [
+        "{{WikiProject banner shell|class=Start|1=",
+        "{{WikiProject Video games|importance=Low}}",
+        "{{WikiProject Role-playing games|importance=Low|custom=yes}}",
+        "{{某某專題|foo=yes}}",
+        "}}",
+    ].join("\n");
+    const options = getExistingOtherProjectOptions(source, projectConfig);
+    const assessment = createDefaultAssessment(projectConfig, source);
+
+    assert.deepEqual(
+        options.map((option) => option.label),
+        ["Role-playing games", "某某"],
+    );
+    assert.ok(options.every((option) => option.id.startsWith("existing:")));
+    assert.ok(options.every((option) => assessment.otherProjects[option.id]));
+    assert.equal(
+        updateTalkPageAssessment(source, assessment, projectConfig),
+        source,
+    );
+
+    assessment.otherProjects[options[0].id] = false;
+    const result = updateTalkPageAssessment(source, assessment, projectConfig);
+
+    assert.doesNotMatch(result, /WikiProject Role-playing games/u);
+    assert.match(result, /\{\{某某專題\|foo=yes\}\}/u);
+});
+
+test("provides controls for standalone conventional project banners", () => {
+    const banner = "{{WikiProject Role-playing games|importance=Low}}";
+    const source = `${banner}\n\n== Discussion ==\nBody`;
+    const options = getExistingOtherProjectOptions(source, projectConfig);
+    const assessment = createDefaultAssessment(projectConfig, source);
+
+    assert.deepEqual(options, [
+        {
+            id: "existing:wikiproject role-playing games",
+            label: "Role-playing games",
+        },
+    ]);
+    assert.equal(assessment.importance, NOT_VIDEO_GAME_IMPORTANCE);
+    assert.equal(assessment.otherProjects[options[0].id], true);
+    assert.equal(
+        updateTalkPageAssessment(source, assessment, projectConfig),
+        `{{WikiProject banner shell|class=Unassessed|1=\n${banner}\n}}\n\n== Discussion ==\nBody`,
+    );
+
+    assessment.otherProjects[options[0].id] = false;
+    assert.doesNotMatch(
+        updateTalkPageAssessment(source, assessment, projectConfig),
+        /Role-playing games/u,
+    );
+});
+
+test("preserves Pokémon shell metadata and current VG parameters while cleaning departed fields", () => {
+    const videoGames =
+        "{{WikiProject Video games |importance=High |Pokemon=yes |NINTENDO=y |NINTENDO-importance= |b1=no |b2=no |b3=no |b4=no |b5=yes |b6=yes}}";
+    const cleanedVideoGames =
+        "{{WikiProject Video games |importance=High |Pokemon=yes |NINTENDO=y }}";
+    const source = [
+        "{{WikiProject banner shell|class=C|vital=yes|",
+        videoGames,
+        "{{ACG專題 |importance=high}}",
+        "{{WikiProject Japan |importance=mid}}",
+        "}}",
+    ].join("\n");
+    const assessment = createDefaultAssessment(projectConfig, source);
+    const expected = source
+        .replace("|vital=yes|\n", "|vital=yes|1=\n")
+        .replace(videoGames, cleanedVideoGames);
+
+    assert.equal(assessment.className, "C");
+    assert.equal(assessment.importance, "High");
+    assert.equal(assessment.taskForces.pokemon, true);
+    assert.equal(assessment.taskForces.nintendo, true);
+    assert.equal(assessment.otherProjects.acg, true);
+    assert.equal(assessment.otherProjects["existing:wikiproject japan"], true);
+    assert.equal(
+        updateTalkPageAssessment(source, assessment, projectConfig),
+        expected,
+    );
+
+    assessment.className = "B";
+    assert.equal(
+        updateTalkPageAssessment(source, assessment, projectConfig),
+        expected.replace("|class=C|", "|class=B|"),
+    );
+});
+
+test("cleans only confirmed departed VG parameters and preserves unchanged supported values", () => {
+    const departed = [
+        "b1",
+        "b2",
+        "b3",
+        "b4",
+        "b5",
+        "b6",
+        "Minecraft-importance",
+        "SE-importance",
+        "SEGA-importance",
+        "NINTENDO-importance",
+        "small",
+        "demo",
+        "attention",
+        "nocat",
+        "ASSESSMENT_CAT",
+    ];
+
+    for (const reassess of ["a", "bplus", "ppr"]) {
+        const active = `{{WPVG |class=C|importance=high |NINTENDO=y |Genshin=y |reassess=${reassess} |needs-infobox=no |cover=0 |screenshot=false |listas=Sort key |category=no |Pokemon-importance=Low |b7=custom |custom={{Nested|b1=yes}}`;
+        const videoGames = `${active}${departed.map((name) => `|${name}=retired`).join("")}}}`;
+        const other =
+            "{{WikiProject Japan|b1=yes|NINTENDO-importance=High|custom=Keep}}";
+        const source = `${videoGames}\n${other}`;
+        const assessment = createDefaultAssessment(projectConfig, source);
+
+        assert.equal(assessment.taskForces.mihoyo, true);
+        assert.equal(assessment.maintenance.reassess, true);
+        assessment.importance = "Top";
+        const result = updateTalkPageAssessment(
+            source,
+            assessment,
+            projectConfig,
+        );
+        const updatedVideoGames = `${active.replace("|class=C", "").replace("|importance=high ", "|importance=Top")}}}`;
+
+        assert.equal(
+            result,
+            `{{WikiProject banner shell|class=C|1=\n${updatedVideoGames}\n${other}\n}}`,
+        );
+        assessment.taskForces.mihoyo = false;
+        assert.doesNotMatch(
+            updateTalkPageAssessment(source, assessment, projectConfig),
+            /\|Genshin=/u,
+        );
+    }
+});
+
+test("merges standalone projects and multiple shells in source order without losing shell metadata", () => {
+    const japan = "{{WikiProject Japan|importance=mid|custom={{Nested|x=y}}}}";
+    const acg = "{{ACG專題|class=A|importance=high}}";
+    const chinese = "{{某某专题|custom=yes}}";
+    const firstVideoGames = "{{WPVG|importance=Low|custom=first}}";
+    const articlesForCreation =
+        "{{WikiProject Articles for creation|reviewer=Keep}}";
+    const source = [
+        "{{Talk header}}",
+        japan,
+        "{{WPBS|class=C|vital=yes|listas=Shared sort|1=",
+        firstVideoGames,
+        acg,
+        "}}",
+        "{{Unmanaged banner|keep=yes}}",
+        chinese,
+        articlesForCreation,
+        "{{WikiProject banner shell|class=B|blp=yes|category=no|1=",
+        "{{WikiProject Video games|importance=Low|custom=duplicate}}",
+        articlesForCreation,
+        "}}",
+        "",
+        "Lead text with {{WPVG}} mentioned outside banners.",
+        "",
+        "== Discussion ==",
+        "Keep this discussion exactly.",
+    ].join("\n");
+    const assessment = createDefaultAssessment(projectConfig, source);
+    const expected = [
+        "{{Talk header}}",
+        "{{WikiProject banner shell|class=C|vital=yes|listas=Shared sort|blp=yes|category=no|1=",
+        japan,
+        firstVideoGames,
+        acg,
+        chinese,
+        articlesForCreation,
+        "}}",
+        "{{Unmanaged banner|keep=yes}}",
+        "",
+        "Lead text with {{WPVG}} mentioned outside banners.",
+        "",
+        "== Discussion ==",
+        "Keep this discussion exactly.",
+    ].join("\n");
+
+    assert.equal(
+        updateTalkPageAssessment(source, assessment, projectConfig),
+        expected,
+    );
+    assert.deepEqual(
+        getExistingOtherProjectOptions(source, projectConfig).map(
+            (option) => option.label,
+        ),
+        ["Japan", "某某", "Articles for creation"],
+    );
+    assert.equal(
+        updateTalkPageAssessment(expected, assessment, projectConfig),
+        expected,
+    );
+});
+
+test("VG cleanup preserves links, comments, literal tags, and parameter expressions", () => {
+    const customValues = [
+        "[[Example|b1=yes]]",
+        "[[Example|{{Format|b1=keep}}]]",
+        "<!-- |b1=keep }} -->",
+        "<nowiki>|b1=keep }}</nowiki>",
+        "<pre>|b1=keep }}</pre>",
+        "{{{fallback|[[Example|b1=keep]]}}}",
+    ];
+    const japan = "{{WikiProject Japan|custom=Keep}}";
+
+    for (const custom of customValues) {
+        const videoGames = `{{WPVG|importance=Low|custom=${custom}|reassess=ppr|b1=remove}}`;
+        const source = `${videoGames}\n${japan}`;
+        const assessment = createDefaultAssessment(projectConfig, source);
+
+        assert.equal(assessment.importance, "Low", custom);
+        assert.equal(assessment.maintenance.reassess, true, custom);
+        assert.equal(
+            updateTalkPageAssessment(source, assessment, projectConfig),
+            `{{WikiProject banner shell|class=Unassessed|1=\n${videoGames.replace("|b1=remove", "")}\n${japan}\n}}`,
+            custom,
+        );
+    }
+});
+
+test("preserves opaque shell-body content and recognizes banners after it", () => {
+    const videoGames =
+        "{{WPVG|importance=Low|custom=<nowiki>}}</nowiki>|b1=remove}}";
+    const japan = "{{WikiProject Japan|custom=yes}}";
+    const opaque =
+        "<!-- Keep this note }} -->Plain prose [[Example|{{WPVG}}]]<nowiki>{{WPVG|b1=keep}}</nowiki>{{{fallback|Keep this parameter}}}";
+    const body = `<nowiki>Leading literal {{ }}</nowiki>${videoGames}${opaque}${japan} trailing prose.`;
+    const source = `{{WPBS|class=C|vital=yes|1=${body}}}\n\n== Discussion ==\nKeep this discussion.`;
+    const assessment = createDefaultAssessment(projectConfig, source);
+
+    assert.equal(assessment.importance, "Low");
+    assert.equal(assessment.otherProjects["existing:wikiproject japan"], true);
+    assert.deepEqual(getExistingOtherProjectOptions(source, projectConfig), [
+        {
+            id: "existing:wikiproject japan",
+            label: "Japan",
+        },
+    ]);
+    assessment.className = "B";
+    const expected = `{{WikiProject banner shell|class=B|vital=yes|1=\n${body.replace("|b1=remove", "")}\n}}\n\n== Discussion ==\nKeep this discussion.`;
+    const result = updateTalkPageAssessment(source, assessment, projectConfig);
+
+    assert.equal(result, expected);
+    assert.equal(
+        updateTalkPageAssessment(result, assessment, projectConfig),
+        expected,
+    );
+    assessment.otherProjects["existing:wikiproject japan"] = false;
+    const withoutJapan = updateTalkPageAssessment(
+        source,
+        assessment,
+        projectConfig,
+    );
+
+    assert.equal(withoutJapan, expected.replace(japan, ""));
+    assert.ok(withoutJapan.includes(opaque));
+});
+
+test("recognizes leading banners through comments and preserves comments around moved banners", () => {
+    const leadingNote = "<!-- Leading note {{ }} -->";
+    const betweenNote = "<!-- Note between banners -->";
+    const japan = "{{WikiProject Japan|importance=mid}}";
+    const source = [
+        leadingNote,
+        "{{Talk header}}",
+        japan,
+        betweenNote,
+        "{{WPBS|class=C|vital=yes|1={{WPVG|importance=High}}}}",
+        "",
+        "== Discussion ==",
+        "Keep this discussion exactly.",
+    ].join("\n");
+    const assessment = createDefaultAssessment(projectConfig, source);
+    const result = updateTalkPageAssessment(source, assessment, projectConfig);
+
+    assert.equal(assessment.className, "C");
+    assert.equal(assessment.importance, "High");
+    assert.equal(assessment.otherProjects["existing:wikiproject japan"], true);
+    assert.ok(result.startsWith(`${leadingNote}\n{{Talk header}}\n`));
+    assert.equal(result.split("WikiProject banner shell").length - 1, 1);
+    assert.equal(result.split(betweenNote).length - 1, 1);
+    assert.ok(result.includes(`${japan}\n{{WPVG|importance=High}}`));
+    assert.equal(
+        result.slice(result.indexOf("== Discussion ==")),
+        "== Discussion ==\nKeep this discussion exactly.",
+    );
+});
+
+test("banner discovery retains its literal-tag and opaque-link policy", () => {
+    const japan = "{{WikiProject Japan|custom=Keep}}";
+    for (const tag of ["nowiki", "pre", "source", "syntaxhighlight", "math"]) {
+        const protectedSource = `<${tag} title="a>b">${japan}</${tag}>`;
+        const source = `{{WPBS|class=C|1=${protectedSource}{{WPVG|importance=Low}}}}`;
+        const assessment = createDefaultAssessment(projectConfig, source);
+        assert.deepEqual(
+            getExistingOtherProjectOptions(source, projectConfig),
+            [],
+            tag,
+        );
+        assert.ok(
+            updateTalkPageAssessment(
+                source,
+                assessment,
+                projectConfig,
+            ).includes(protectedSource),
+        );
+    }
+    assert.equal(
+        getExistingOtherProjectOptions(
+            `{{WPBS|1=<code>${japan}</code>}}`,
+            projectConfig,
+        )[0]?.label,
+        "Japan",
+    );
+    for (const source of [
+        `{{WPBS|1=[[Example|${japan}]]}}`,
+        `{{WPBS|1=[[Unfinished|${japan}}}`,
+        `{{WPBS|1={{{fallback|${japan}}}}}}}`,
+    ]) {
+        assert.deepEqual(
+            getExistingOtherProjectOptions(source, projectConfig),
+            [],
+            source,
+        );
+    }
+    assert.equal(
+        createDefaultAssessment(
+            projectConfig,
+            "{{{optional|}}}\n{{WPVG|importance=High}}",
+        ).importance,
+        "High",
+    );
+});
+
+test("banner updates preserve complete reference-tag parameters and hidden link braces", () => {
+    for (const custom of [
+        '<ref name="note|x">a|b=c</ref>',
+        '<ref name="note|x" />',
+        "[[Example|}} {{WikiProject Japan}}]]",
+    ]) {
+        const banner = `{{WPVG|importance=Low|custom=${custom}|b1=remove}}`;
+        const assessment = createDefaultAssessment(projectConfig, banner);
+        assert.equal(assessment.importance, "Low");
+        const expected = `{{WikiProject banner shell|class=Unassessed|1=\n${banner.replace("|b1=remove", "")}\n}}`;
+        const result = updateTalkPageAssessment(
+            banner,
+            assessment,
+            projectConfig,
+        );
+        assert.equal(result, expected);
+        assert.equal(
+            updateTalkPageAssessment(result, assessment, projectConfig),
+            expected,
+        );
+        assert.equal(
+            createDefaultAssessment(projectConfig, result).importance,
+            "Low",
+        );
+    }
+});
+
+test("leading-banner scans retain offsets through many templates, comments, and parameters", () => {
+    const prefix =
+        Array.from(
+            { length: 20 },
+            (_value, index) =>
+                `{{Unmanaged|index=${index}|nested={{Inner|x=y}}}}<!-- gap ${index} {{ignored}} -->\n`,
+        ).join("") + "{{{optional|{{Fallback}}}}}\n";
+    const discussion = "\nDiscussion starts here.\n{{WPVG|importance=High}}";
+    const source = prefix + "{{WPVG|importance=Low}}" + discussion;
+    const assessment = createDefaultAssessment(projectConfig, source);
+
+    assert.equal(assessment.importance, "Low");
+    const updated = updateTalkPageAssessment(
+        source,
+        assessment,
+        projectConfig,
+    );
+    assert.ok(updated.includes(prefix));
+    assert.ok(updated.endsWith(discussion));
+    assert.equal(
+        createDefaultAssessment(projectConfig, updated).importance,
+        "Low",
+    );
+});
+
+test("preview is exactly the transformed talk-page top section", () => {
+    const source = [
+        "{{WikiProject Anime}}",
+        "",
+        "== Discussion ==",
+        "Body",
+    ].join("\n");
+    const assessment = createDefaultAssessment(projectConfig);
+
+    assessment.className = "C";
+    assessment.importance = "High";
+    const transformed = updateTalkPageAssessment(
+        source,
+        assessment,
+        projectConfig,
+    );
+
+    assert.equal(
+        previewTalkPageTopSection(source, assessment, projectConfig),
+        getTalkPageTopSection(transformed),
+    );
+});
+
+test("replaces only the reviewed top section", () => {
+    const current = [
+        "{{Old banner}}",
+        "",
+        "== Discussion ==",
+        "Concurrent body",
+    ].join("\n");
+    const reviewed = "{{Reviewed banner}}\n{{Second reviewed banner}}";
+
+    assert.equal(
+        updateTalkPageTopSection(current, reviewed),
+        [
+            "{{Reviewed banner}}",
+            "{{Second reviewed banner}}",
+            "",
+            "== Discussion ==",
+            "Concurrent body",
+        ].join("\n"),
+    );
+});
+
+test("preserves reviewed top-section whitespace exactly", () => {
+    const current = "Old lead\n\n== Discussion ==\nBody";
+    const reviewed = "  {{Reviewed banner}}\n\n\n";
+
+    assert.equal(
+        updateTalkPageTopSection(current, reviewed),
+        `${reviewed}== Discussion ==\nBody`,
+    );
+    assert.equal(
+        updateTalkPageTopSection("Old page without headings", reviewed),
+        reviewed,
+    );
+});
+
+test("project assessment follows leading history and notices while preserving discussions and comments", () => {
+    for (const notice of [
+        "Article history",
+        "Template:Talk_header",
+        "條目歷史",
+        "优良条目",
+    ]) {
+        const discussion =
+            "== Discussion ==\n{{Article history|keep=discussion}}\nKeep text.";
+        const source = `{{WPVG|class=C|importance=Low}}\n<!-- retain -->\n{{${notice}|custom={{Nested|x=y}}}}\n\n${discussion}`;
+        const assessment = createDefaultAssessment(projectConfig, source);
+        const result = updateTalkPageAssessment(
+            source,
+            assessment,
+            projectConfig,
+        );
+        assert.ok(
+            result.indexOf(`{{${notice}|`) <
+                result.indexOf("{{WikiProject banner shell"),
+        );
+        assert.equal(result.split("<!-- retain -->").length, 2);
+        assert.equal(
+            result.slice(result.indexOf("== Discussion ==")),
+            discussion,
+        );
+        assert.equal(
+            updateTalkPageAssessment(result, assessment, projectConfig),
+            result,
+        );
+    }
+});
+
+test("Chinese deletion history and its verified aliases stay above new and existing assessment shells", () => {
+    for (const name of [
+        "vfd-kept",
+        "Template:Vfd-kept",
+        "模板:Vfd-kept",
+        "Old vfd multi",
+        "Template:Old_vfd_multi",
+        "Oldafdfull",
+        "Oldmfd",
+        "存廢討論被保留",
+        "存废讨论被保留",
+        "頁面存廢討論被保留",
+        "页面存废讨论被保留",
+        "Multidel",
+        "Drv-kept",
+    ]) {
+        const history = `{{${name}|2014/04/05|保留}}`;
+        const comment = "<!-- Keep the deletion discussion history. -->";
+        const discussion =
+            "== Discussion ==\nKeep {{vfd-kept|2020/01/01|保留}} here.";
+        const existing = "{{WPBS|class=C|1={{WPVG|importance=Low}}}}";
+        for (const lead of [
+            [history, comment],
+            [existing, history, comment],
+            [history, existing, comment],
+        ]) {
+            const source = [...lead, "{{Archives}}", "", discussion].join(
+                "\n",
+            );
+            const assessment = createDefaultAssessment(projectConfig, source);
+            const result = updateTalkPageAssessment(
+                source,
+                assessment,
+                projectConfig,
+            );
+            const shellStart = result.indexOf("{{WikiProject banner shell");
+
+            assert.ok(result.indexOf(history) < shellStart, name);
+            assert.ok(shellStart < result.indexOf("{{Archives}}"), name);
+            assert.equal(result.split(history).length, 2);
+            assert.equal(result.split(comment).length, 2);
+            assert.equal(
+                result.slice(result.indexOf("== Discussion ==")),
+                discussion,
+            );
+            assert.equal(
+                updateTalkPageAssessment(result, assessment, projectConfig),
+                result,
+            );
+        }
+    }
+});
+
+test("reviewed ordering sorts known banner slots and leaves unknown and archive source in place", () => {
+    const source = [
+        "{{Refideas|1=source}}",
+        "{{Unrecognized banner|keep=yes}}",
+        "{{Notice|1=First}}",
+        "<!-- Keep this comment. -->",
+        "{{Talk header}}",
+        "{{Notice|1=Second}}",
+        "{{WikiProject banner shell|class=Stub|1=",
+        "{{WikiProject Video games|importance=}}",
+        "}}",
+        "{{DYKEntry/archive}}",
+        "{{Featured article candidates|leave=yes}}",
+        "== Discussion ==",
+        "{{Talk header|example}}",
+    ].join("\r\n");
+    const assessment = createDefaultAssessment(projectConfig, source);
+    const options = { orderBanners: true };
+    const ordered = updateTalkPageAssessment(
+        source,
+        assessment,
+        projectConfig,
+        options,
+    );
+
+    assert.ok(
+        ordered.startsWith(
+            [
+                "{{Talk header}}",
+                "{{Unrecognized banner|keep=yes}}",
+                "{{Notice|1=First}}",
+                "<!-- Keep this comment. -->",
+                "{{Notice|1=Second}}",
+                "{{WikiProject banner shell|class=Stub|1=",
+            ].join("\r\n"),
+        ),
+    );
+    assert.ok(
+        ordered.endsWith(
+            [
+                "{{Refideas|1=source}}",
+                "{{DYKEntry/archive}}",
+                "{{Featured article candidates|leave=yes}}",
+                "== Discussion ==",
+                "{{Talk header|example}}",
+            ].join("\r\n"),
+        ),
+    );
+    assert.equal(
+        updateTalkPageAssessment(ordered, assessment, projectConfig, options),
+        ordered,
+    );
+    assert.match(
+        previewTalkPageTopSection(source, assessment, projectConfig),
+        /^\{\{Refideas/u,
+    );
+});
+
+test("moving a leading shell after deletion history removes orphaned blank lines only at its old position", () => {
+    for (const newline of ["\n", "\r\n"]) {
+        const shell = [
+            "{{WikiProject banner shell|class=Unassessed|1=",
+            "{{WikiProject Video games|importance=}}",
+            "}}",
+        ].join(newline);
+        const history = "{{vfd-kept|2014/04/05|保留}}";
+        for (const leadingWhitespace of ["", `${newline}\t${newline}`]) {
+            for (const remainder of [
+                "",
+                `${newline}${newline}<!-- Keep this note. -->${newline}${newline}== Discussion ==${newline}  Keep this source exactly.`,
+            ]) {
+                const source = `${leadingWhitespace}${shell}${newline}${newline}${history}${remainder}`;
+                const assessment = createDefaultAssessment(
+                    projectConfig,
+                    source,
+                );
+                const result = updateTalkPageAssessment(
+                    source,
+                    assessment,
+                    projectConfig,
+                );
+                const updatedShell = buildAssessmentBanners(
+                    assessment,
+                    projectConfig,
+                    source,
+                );
+                assert.equal(
+                    result,
+                    `${history}${newline}${updatedShell}${remainder}`,
+                );
+                assert.equal(
+                    updateTalkPageAssessment(
+                        result,
+                        assessment,
+                        projectConfig,
+                    ),
+                    result,
+                );
+            }
+        }
+    }
+});
+
+test("banner relocation preserves CRLF and does not move an already correctly placed shell", () => {
+    const source =
+        "<!-- before -->\r\n{{WPVG|class=C|importance=Low}}\r\n{{Notice|keep=yes}}\r\n\r\n== Discussion ==\r\nKeep.";
+    const assessment = createDefaultAssessment(projectConfig, source);
+    const result = updateTalkPageAssessment(source, assessment, projectConfig);
+    assert.ok(
+        result.startsWith(
+            "<!-- before -->\r\n{{Notice|keep=yes}}\r\n{{WikiProject banner shell",
+        ),
+    );
+    assert.ok(result.endsWith("\r\n\r\n== Discussion ==\r\nKeep."));
+    assert.equal(
+        updateTalkPageAssessment(result, assessment, projectConfig),
+        result,
+    );
+});
+
+test("moves the shell above requests and later banners even without a notice or history anchor", () => {
+    for (const banner of [
+        "Image requested",
+        "Photo requested",
+        "Map requested",
+        "Infobox requested",
+        "Connected contributor",
+        "Press",
+        "High traffic",
+        "Refideas",
+        "Todo",
+        "Consensus",
+        "Reliable sources for medical articles",
+        "Copied",
+        "Ticket confirmation",
+        "Split article",
+        "Merged-from",
+        "Merged to",
+        "Template:Translated_page",
+        "Section sizes",
+        "Archives",
+    ]) {
+        const retained = `{{${banner}|keep={{Nested|x=y}}}}`;
+        const source = `${retained}\n{{WPBS|class=C|1={{WPVG|importance=Low}}}}`;
+        const assessment = createDefaultAssessment(projectConfig, source);
+        const shell = buildAssessmentBanners(
+            assessment,
+            projectConfig,
+            source,
+        );
+        const result = updateTalkPageAssessment(
+            source,
+            assessment,
+            projectConfig,
+        );
+        assert.equal(result, `${shell}\n${retained}`, banner);
+        assert.equal(
+            updateTalkPageAssessment(result, assessment, projectConfig),
+            result,
+        );
+    }
+});
+
+test("places the shell between the documented lead notices and later banners without resorting them", () => {
+    const before = [
+        "{{GA nominee|keep=yes}}",
+        "{{Skip to talk}}",
+        "{{Talk page of redirect}}",
+        "{{Talk header}}",
+        "{{Notice|custom=yes}}",
+        "{{COI editnotice}}",
+        "{{FAQ}}",
+        "{{British English}}",
+        "{{Article history|dykdate=2026-01-01}}",
+        "{{Unmanaged banner|keep={{Nested|x=y}}}}",
+    ];
+    const after = [
+        "{{Photo requested|keep=yes}}",
+        "{{Connected contributor|user=Example}}",
+        "{{Todo|keep=yes}}",
+        "{{Copied|from=Example}}",
+        "{{Section sizes}}",
+        "{{Archives|auto=yes}}",
+    ];
+    const discussion =
+        "== Discussion ==\nKeep {{Notice}} and {{Copied}} here.";
+    const existing = "{{WPBS|class=C|1={{WPVG|importance=Low}}}}";
+    const source = [...before, ...after, existing, "", discussion].join("\n");
+    const assessment = createDefaultAssessment(projectConfig, source);
+    const shell = buildAssessmentBanners(assessment, projectConfig, source);
+    const expected = [...before, shell, ...after, "", discussion].join("\n");
+    const result = updateTalkPageAssessment(source, assessment, projectConfig);
+    assert.equal(result, expected);
+    assert.equal(
+        updateTalkPageAssessment(result, assessment, projectConfig),
+        result,
+    );
+});
+
+test("moving a shell up retains CRLF, comments, unknown banners, and the discussion exactly", () => {
+    const prefix = "<!-- lead note -->";
+    const translation =
+        "{{Translated page|from=Example|keep=<nowiki>{{Notice}}</nowiki>}}";
+    const firstComment = "<!-- before old shell -->";
+    const secondComment = "<!-- after old shell -->";
+    const unknown = "{{Unknown banner|keep={{Nested|x=y}}}}";
+    const discussion =
+        "== Discussion ==\r\n<nowiki>{{Article history}}</nowiki>\r\nKeep text.";
+    const source = [
+        prefix,
+        translation,
+        firstComment,
+        "{{WPBS|class=C|1={{WPVG|importance=Low}}}}",
+        secondComment,
+        unknown,
+        "{{Archives}}",
+        "",
+        discussion,
+    ].join("\r\n");
+    const assessment = createDefaultAssessment(projectConfig, source);
+    const shell = buildAssessmentBanners(assessment, projectConfig, source);
+    const result = updateTalkPageAssessment(source, assessment, projectConfig);
+    assert.equal(
+        result,
+        [
+            prefix,
+            shell,
+            translation,
+            firstComment,
+            secondComment,
+            unknown,
+            "{{Archives}}",
+            "",
+            discussion,
+        ].join("\r\n"),
+    );
+    assert.equal(
+        updateTalkPageAssessment(result, assessment, projectConfig),
+        result,
+    );
+});
+
+test("nested and opaque later-banner names do not create shell placement anchors", () => {
+    const notice =
+        "{{Notice|keep=<nowiki>{{Archives}}</nowiki>|nested={{Copied}}}}";
+    const source = `{{WPBS|class=C|1={{WPVG|importance=Low}}}}\n${notice}\n{{Archives}}\n\n== Discussion ==\nKeep.`;
+    const assessment = createDefaultAssessment(projectConfig, source);
+    const shell = buildAssessmentBanners(assessment, projectConfig, source);
+    const result = updateTalkPageAssessment(source, assessment, projectConfig);
+    assert.equal(
+        result,
+        `${notice}\n${shell}\n{{Archives}}\n\n== Discussion ==\nKeep.`,
+    );
+    assert.equal(
+        updateTalkPageAssessment(result, assessment, projectConfig),
+        result,
+    );
+});
+
+test("contradictory surrounding banners retain their source order and require manual review", () => {
+    const source =
+        "{{Copied|keep=yes}}\n{{Article history|keep=yes}}\n{{WPBS|class=C|1={{WPVG|importance=Low}}}}\n{{Archives}}";
+    const assessment = createDefaultAssessment(projectConfig, source);
+    const shell = buildAssessmentBanners(assessment, projectConfig, source);
+    const result = updateTalkPageAssessment(source, assessment, projectConfig);
+    assert.equal(
+        result,
+        `{{Copied|keep=yes}}\n{{Article history|keep=yes}}\n${shell}\n{{Archives}}`,
+    );
+    assert.equal(
+        updateTalkPageAssessment(result, assessment, projectConfig),
+        result,
+    );
+});
+
+test("shell placement puts Biography first and retains other project order and separators", () => {
+    const japan = "{{WikiProject Japan|keep=yes}}";
+    const biography = "{{传记专题|living=yes|custom={{Nested|x=y}}}}";
+    const videoGames = "{{WPVG|importance=Low}}";
+    const separator = "\r\n<!-- Keep this shell comment. -->\r\n";
+    const originalBody = `${japan}${separator}${videoGames}\r\n${biography}`;
+    const source = `{{Photo requested}}\n{{WPBS|class=C|1=${originalBody}}}`;
+    const assessment = createDefaultAssessment(projectConfig, source);
+    const result = updateTalkPageAssessment(source, assessment, projectConfig);
+    assert.ok(
+        result.indexOf("{{WikiProject banner shell") <
+            result.indexOf("{{Photo requested}}"),
+    );
+    const body = `${biography}${separator}${japan}\r\n${videoGames}`;
+    assert.ok(result.includes(`|1=\n${body}\n}}`));
+    assert.equal(
+        updateTalkPageAssessment(result, assessment, projectConfig),
+        result,
+    );
+});

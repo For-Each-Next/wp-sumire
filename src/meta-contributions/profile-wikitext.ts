@@ -13,7 +13,7 @@ export class ProfileFormatError extends Error {
     }
 }
 
-export interface Line extends Span {
+interface Line extends Span {
     text: string;
     newline: string;
 }
@@ -43,8 +43,21 @@ const lineBreak = /\r\n|\n|\r/u;
 const commentPattern = /<!--[\s\S]*?-->/gu;
 const fieldStart = /^\s*;\s*([\p{L}\p{N}_-]+)\s*:/u;
 const continuationStart = /^\s*:/u;
+const recordNames = {
+    working: "In progress",
+    articles: "Article",
+    reviews: "Review",
+    barnstars: "barnstar",
+    quotations: "quotation",
+    userboxes: "userbox",
+} as const;
+type NumberedSectionId = keyof typeof recordNames;
+const recordNumberPattern = new RegExp(
+    `^<!-- (?:${Object.values(recordNames).join("|")}) [0-9]+ -->$`,
+    "iu",
+);
 
-export function linesOf(text: string): Line[] {
+function linesOf(text: string): Line[] {
     const lines: Line[] = [];
     for (const match of text.matchAll(/([^\r\n]*)(\r\n|\n|\r|$)/gu)) {
         if (match[0]) {
@@ -183,20 +196,22 @@ export function readDefaultSite(
 export function renderRecordTemplate(
     mode: string,
     data: string,
+    section: NumberedSectionId,
+    number: number,
     defaultSite?: string,
 ): string {
     const site =
         defaultSite === undefined
             ? ""
             : `|site=${normalizeDefaultSite(defaultSite)}`;
-    return `{{/|${mode}${site}|data=\n${data}\n}}`;
+    return `{{/|${mode}${site}|data=\n\n${recordNumberComment(section, number)}\n${data}\n}}`;
 }
 
 export function fieldValue(field: Field | undefined): string {
     return field?.lines.map(({ value }) => value).join("\n") ?? "";
 }
 
-export function commentRanges(data: string): Span[] {
+function commentRanges(data: string): Span[] {
     const comments: Span[] = [];
     visitWikitext(scanWikitext(data), (node) => {
         if (node.kind === "comment") {
@@ -305,6 +320,65 @@ export function readRecords(data: string): RecordSource[] {
     }
     commit();
     return records;
+}
+
+export function recordNumber(
+    section: NumberedSectionId,
+    index: number,
+    count: number,
+): number {
+    return section === "working" || section === "reviews"
+        ? count - index
+        : index + 1;
+}
+
+export function formatRecordNumber(number: number): string {
+    return String(number).padStart(2, "0");
+}
+
+function recordNumberComment(section: NumberedSectionId, number: number) {
+    return `<!-- ${recordNames[section]} ${formatRecordNumber(number)} -->`;
+}
+
+export function numberRecords(
+    data: string,
+    newline: string,
+    section: NumberedSectionId,
+): string {
+    const commentStarts = new Set(
+        commentRanges(data).map(({ start }) => start),
+    );
+    const unnumbered = linesOf(data)
+        .filter((line) => {
+            const trimmed = line.text.trimStart();
+            const start = line.start + line.text.length - trimmed.length;
+            return (
+                !commentStarts.has(start) ||
+                !recordNumberPattern.test(trimmed.trimEnd())
+            );
+        })
+        .map(({ text, newline }) => text + newline)
+        .join("");
+
+    const records = readRecords(unnumbered);
+    let index = 0;
+    let previous: Line | undefined;
+    const output: string[] = [];
+    for (const line of linesOf(unnumbered)) {
+        if (line.start === records[index]?.start) {
+            const lineEnding = line.newline || newline;
+            // MediaWiki removes the comment line before Lua reads the block.
+            // Keep a physical blank line so distinct records stay distinct.
+            if (!previous) output.push(lineEnding, lineEnding);
+            else if (previous.start === 0 || previous.text.trim())
+                output.push(lineEnding);
+            const number = recordNumber(section, index++, records.length);
+            output.push(recordNumberComment(section, number), lineEnding);
+        }
+        output.push(line.text, line.newline);
+        previous = line;
+    }
+    return output.join("");
 }
 
 export function editableValue(value: string): string {

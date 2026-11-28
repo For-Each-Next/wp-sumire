@@ -1,4 +1,11 @@
-export const draftHosts = ["zh.wikipedia.org", "zh.m.wikipedia.org"];
+const chineseWikipedia = "zh.wikipedia.org";
+export const draftHosts = [chineseWikipedia, "zh.m.wikipedia.org"];
+export const assessorWikiOrigin = `https://${chineseWikipedia}`;
+export const assessorPetScanHosts = [
+    "petscan.toolforge.org",
+    "petscan.wmcloud.org",
+];
+export const assessorHosts = [chineseWikipedia, ...assessorPetScanHosts];
 export const reviewApexHosts = ["metacritic.com", "opencritic.com"] as const;
 export const reviewHosts = reviewApexHosts.flatMap((host) => [
     host,

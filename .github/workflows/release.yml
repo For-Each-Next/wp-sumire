@@ -17,7 +17,8 @@ permissions:
 
 jobs:
     release:
-        uses: For-Each-Next/wp/.github/workflows/release.yml@da95e2826d9c459252abe12565f1c30801468167
+        uses: For-Each-Next/wp/.github/workflows/release.yml@c3152e19c67a40348db3bfb3bf8329fd5e4469d8
         with:
             tag: ${{ inputs.tag }}
             publish: ${{ inputs.publish }}
+            install-browser: true

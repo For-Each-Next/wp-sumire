@@ -1,20 +1,19 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-import { writeDistributions } from "@for-each-next/wp/release";
-import {
-    releaseAssetBase,
-    renderUserscript,
-    withIntegrity,
-} from "@for-each-next/wp/userscripts";
+import { buildDistributions } from "@for-each-next/wp/build";
+import { renderUserscript } from "@for-each-next/wp/userscripts";
 import { build } from "esbuild";
 
 import {
+    assessorHosts,
+    assessorPetScanHosts,
     draftHosts,
     reviewHosts,
     wikiExclusions,
     wikiHosts,
 } from "../src/shared/hosts.ts";
+import { readAssessorAssets } from "./wpvg-assessor/assets.mjs";
 
 const root = new URL("../", import.meta.url);
 const { version, license, description } = JSON.parse(
@@ -23,6 +22,16 @@ const { version, license, description } = JSON.parse(
 const repository = "For-Each-Next/wp-sumire";
 const homepage = `https://github.com/${repository}`;
 const publicAssets = `${homepage}/releases/latest/download`;
+const assessorLicense = `${license} AND MIT AND CC-BY-4.0`;
+const draftCopyLicense = `${license} AND BSD-3-Clause`;
+const [assessorDefines, assessorNotices, diffNotice] = await Promise.all([
+    readAssessorAssets(),
+    readFile(new URL("THIRD-PARTY-NOTICES.md", root), "utf8"),
+    readFile(
+        new URL("LICENSE", import.meta.resolve("diff/package.json")),
+        "utf8",
+    ),
+]);
 
 const reviewGrants = [
     "GM_addStyle",
@@ -51,7 +60,8 @@ const tools = [
             ],
         ],
         hosts: draftHosts,
-        native: true,
+        license: draftCopyLicense,
+        draftCopy: true,
     },
     {
         id: "meta-contributions",
@@ -72,7 +82,28 @@ const tools = [
         ],
         hosts: wikiHosts,
         exclusions: wikiExclusions,
-        native: true,
+    },
+    {
+        id: "wpvg-assessor",
+        name: "Article Assessor",
+        namespace: "wpvg-assessor",
+        description:
+            "Review and save WikiProject Video games assessments on Chinese Wikipedia.",
+        translations: [
+            [
+                "zh-CN",
+                "条目评级",
+                "在中文维基百科审阅和保存电子游戏专题的条目评级。",
+            ],
+            [
+                "zh-TW",
+                "條目評級",
+                "在中文維基百科檢閱和儲存電子遊戲專題的條目評級。",
+            ],
+        ],
+        hosts: assessorHosts,
+        license: assessorLicense,
+        assessor: true,
     },
     {
         id: "wpvg-source-labels",
@@ -99,18 +130,30 @@ const sumire = {
     name: "Sumire",
     description,
     translations: [
-        ["zh-CN", "Sumire", "维基编辑工具及游戏评论的维基百科来源标注。"],
-        ["zh-TW", "Sumire", "維基編輯工具及遊戲評論的維基百科來源標註。"],
+        [
+            "zh-CN",
+            "Sumire",
+            "维基编辑工具、电子游戏条目评级及游戏评论来源标注。",
+        ],
+        [
+            "zh-TW",
+            "Sumire",
+            "維基編輯工具、電子遊戲條目評級及遊戲評論來源標註。",
+        ],
     ],
-    hosts: [...wikiHosts, ...reviewHosts],
+    hosts: [...wikiHosts, ...assessorPetScanHosts, ...reviewHosts],
     exclusions: wikiExclusions,
     grants: [...reviewGrants, "unsafeWindow"],
     connect: reviewConnect,
     sandbox: "JavaScript",
+    license: `${assessorLicense} AND BSD-3-Clause`,
+    assessor: true,
+    draftCopy: true,
 };
 
-function metadata(script, id = script.id) {
+function metadata(script) {
     const {
+        id,
         name,
         namespace = "sumire",
         description,
@@ -120,6 +163,7 @@ function metadata(script, id = script.id) {
         grants = ["none"],
         connect = [],
         sandbox = "raw",
+        license: scriptLicense = license,
     } = script;
     const update = `${publicAssets}/${id}.user.js`;
     return [
@@ -132,7 +176,7 @@ function metadata(script, id = script.id) {
             `description:${locale}`,
             description,
         ]),
-        ["license", license],
+        ["license", scriptLicense],
         ["homepageURL", homepage],
         ["updateURL", update],
         ["downloadURL", update],
@@ -146,7 +190,7 @@ function metadata(script, id = script.id) {
     ];
 }
 
-async function bundle(entry, { minify = false, wiki = false } = {}) {
+async function bundle(entry, { minify, assessor }) {
     const {
         outputFiles: [output],
     } = await build({
@@ -154,68 +198,58 @@ async function bundle(entry, { minify = false, wiki = false } = {}) {
         entryPoints: [`src/entries/${entry}.ts`],
         bundle: true,
         charset: "utf8",
+        define: assessor ? assessorDefines : undefined,
         format: "iife",
         legalComments: "none",
         platform: "browser",
         target: "es2020",
         minify,
-        supported: wiki ? { "template-literal": false } : undefined,
+        supported: minify ? { "template-literal": false } : undefined,
         write: false,
     });
     return output.text;
 }
 
-function banner(name) {
-    return `/*! ${name} v${version} | ${license} */\n`;
+function banner({
+    name,
+    license: scriptLicense = license,
+    assessor,
+    draftCopy,
+}) {
+    const notices = [
+        assessor ? assessorNotices : "",
+        draftCopy ? diffNotice : "",
+    ]
+        .filter(Boolean)
+        .map((notice) => `/*!\n${notice.trimEnd()}\n*/\n`)
+        .join("");
+    return `/*! ${name} v${version} | ${scriptLicense} */\n${notices}`;
 }
 
-function wikiProgram(name, program) {
-    return `// <nowiki>\n${banner(name)}${program}// </nowiki>\n`;
+function wikiProgram(tool, program) {
+    return `// <nowiki>\n${banner(tool)}${program}// </nowiki>\n`;
 }
 
-async function toolDistributions(tool) {
-    const { id, name, native } = tool;
-    const [script, wiki] = await Promise.all([
-        bundle(id),
-        native ? bundle(id, { minify: true, wiki: true }) : undefined,
+async function scriptDistributions(tool) {
+    const { id, assessor } = tool;
+    const [script, compact] = await Promise.all([
+        bundle(id, { minify: false, assessor }),
+        bundle(id, { minify: true, assessor }),
     ]);
-    const files = {
-        [`${id}.user.js`]: renderUserscript(
-            metadata(tool),
-            banner(name) + script,
-        ),
-    };
-    if (wiki) files[`${id}.min.js`] = wikiProgram(name, wiki);
-    return files;
+    const directives = metadata(tool);
+    const wiki = wikiProgram(tool, compact);
+    return new Map([
+        [`${id}.user.js`, renderUserscript(directives, banner(tool) + script)],
+        [
+            `${id}.min.js`,
+            tool.grants ? renderUserscript(directives, wiki) : wiki,
+        ],
+    ]);
 }
 
-const [toolFiles, aggregate, wikiAggregate, licenseText] = await Promise.all([
-    Promise.all(tools.map(toolDistributions)),
-    bundle(sumire.id, { minify: true }),
-    bundle("sumire-wiki", { minify: true, wiki: true }),
-    readFile(new URL("LICENSE", root)),
-]);
-const runtimeName = "sumire.runtime.js";
-const runtime = banner(sumire.name) + aggregate;
-const runtimeUrl = withIntegrity(
-    `${releaseAssetBase(repository, version)}${runtimeName}`,
-    runtime,
-);
-const files = Object.assign({}, ...toolFiles, {
-    "sumire.user.js": renderUserscript([
-        ...metadata(sumire),
-        ["require", runtimeUrl],
-    ]),
-    "sumire.full.user.js": renderUserscript(
-        metadata(sumire, "sumire.full"),
-        runtime,
-    ),
-    "sumire.min.js": wikiProgram(sumire.name, wikiAggregate),
-    [runtimeName]: runtime,
-    "LICENSE.txt": licenseText,
-});
-
-await writeDistributions(fileURLToPath(new URL("dist/", root)), {
+await buildDistributions({
+    root: fileURLToPath(root),
     version,
-    files,
+    targets: [sumire, ...tools],
+    buildArtifacts: scriptDistributions,
 });

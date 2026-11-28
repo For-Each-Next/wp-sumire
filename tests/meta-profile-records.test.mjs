@@ -26,6 +26,7 @@ const leadSuffix = [
 ].join("\r\n");
 const data = [
     "",
+    "<!-- userbox 01 -->",
     "; Badge : [[File:Blue icon.svg|18px]]",
     "; color : #84A6C8",
     "; text : A {{Label|name=blue}} badge",
@@ -33,6 +34,7 @@ const data = [
     "; tip : Original tooltip <!-- Keep this comment. -->",
     "; metadata : Keep this field.",
     "",
+    "<!-- userbox 02 -->",
     "; badge : fr",
     "; level : 2",
     "; tone : gray",
@@ -43,6 +45,7 @@ const data = [
 test("reads Userboxes from the lead and updates only the selected field bytes", () => {
     const source = leadPrefix + data + leadSuffix;
     const section = parseProfileRecords(source, "userboxes");
+    assert.equal(section.needsNumbering, false);
     assert.deepEqual(section.entries, [
         {
             id: "userboxes:1",
@@ -123,15 +126,19 @@ test("adds, reorders and removes Userboxes with either a badge or main text", ()
     const added = section.withEntries([textBox, badgeBox]);
     assert.equal(
         added,
-        `${prefix}; text : A [[page|label]]\n: on two lines\n\n; badge : {{Icon|size=18}}\n\n${suffix}`,
+        `${prefix}<!-- userbox 01 -->\n; text : A [[page|label]]\n: on two lines\n\n<!-- userbox 02 -->\n; badge : {{Icon|size=18}}\n\n${suffix}`,
     );
     const edited = parseProfileRecords(added, "userboxes");
     const [textEntry, badgeEntry] = edited.entries;
     assert.equal(
         edited.withEntries([badgeEntry, textEntry]),
-        `${prefix}; badge : {{Icon|size=18}}\n\n; text : A [[page|label]]\n: on two lines\n\n${suffix}`,
+        `${prefix}<!-- userbox 01 -->\n; badge : {{Icon|size=18}}\n\n<!-- userbox 02 -->\n; text : A [[page|label]]\n: on two lines\n\n${suffix}`,
     );
-    assert.equal(edited.withEntries([]), `${prefix}\n\n${suffix}`);
+    const removed = edited.withEntries([]);
+    assert.doesNotMatch(removed, /<!-- userbox \d+ -->/u);
+    assert.ok(removed.startsWith(prefix));
+    assert.ok(removed.endsWith(suffix));
+    assert.deepEqual(parseProfileRecords(removed, "userboxes").entries, []);
     assert.throws(
         () =>
             edited.withEntries([
@@ -158,14 +165,17 @@ test("requires one Userboxes template in the lead", () => {
 test("preserves existing records with only optional fields", () => {
     const source = "{{/|userboxes|data=\n; color : #123\n}}";
     const section = parseProfileRecords(source, "userboxes");
-    assert.equal(section.withEntries(section.entries), source);
+    const numbered =
+        "{{/|userboxes|data=\n\n<!-- userbox 01 -->\n; color : #123\n}}";
+    assert.equal(section.needsNumbering, true);
+    assert.equal(section.withEntries(section.entries), numbered);
 
     const [entry] = section.entries;
     assert.equal(
         section.withEntries([
             { ...entry, fields: { ...entry.fields, color: "#456" } },
         ]),
-        source.replace("#123", "#456"),
+        numbered.replace("#123", "#456"),
     );
 });
 
@@ -190,6 +200,8 @@ test("renders a single contribution using its group mode, default site, and note
         renderContributionItem("working", " ZH ", workingEntry),
         [
             "{{/|working|site=zh|data=",
+            "",
+            "<!-- In progress 01 -->",
             "; title : Draft:Glass River",
             "; type : draft",
             "; note : {{/|trans|en|Glass River|Example editor|partly=yes}}",
@@ -206,11 +218,16 @@ test("renders a single contribution using its group mode, default site, and note
         title: "Glass River",
         notes: [],
     };
-    for (const group of ["articles", "reviews"]) {
+    for (const [group, name] of [
+        ["articles", "Article"],
+        ["reviews", "Review"],
+    ]) {
         assert.equal(
-            renderContributionItem(group, "en|data=broken", completed),
+            renderContributionItem(group, "en|data=broken", completed, 12),
             [
                 "{{/|contributions|site=en|data=",
+                "",
+                `<!-- ${name} 12 -->`,
                 "; site : fr",
                 "; title : Glass River",
                 "}}",
@@ -227,7 +244,7 @@ test("renders standalone Barnstar, Quotation and Userbox templates", () => {
             "ja",
             entry({ file: "Example.svg", by: "Editor" }),
         ),
-        "{{/|barnstars|site=ja|data=\n; file : Example.svg\n; by : Editor\n}}",
+        "{{/|barnstars|site=ja|data=\n\n<!-- barnstar 01 -->\n; file : Example.svg\n; by : Editor\n}}",
     );
     assert.equal(
         renderProfileRecordItem(
@@ -235,7 +252,7 @@ test("renders standalone Barnstar, Quotation and Userbox templates", () => {
             "",
             entry({ text: "First line\nSecond line" }),
         ),
-        "{{/|quotations|data=\n; text : First line\n: Second line\n}}",
+        "{{/|quotations|data=\n\n<!-- quotation 01 -->\n; text : First line\n: Second line\n}}",
     );
     assert.equal(
         renderProfileRecordItem(
@@ -243,7 +260,7 @@ test("renders standalone Barnstar, Quotation and Userbox templates", () => {
             "",
             entry({ badge: "[[File:Icon.svg|16px]]", color: "#124" }),
         ),
-        "{{/|userboxes|data=\n; badge : [[File:Icon.svg|16px]]\n; color : #124\n}}",
+        "{{/|userboxes|data=\n\n<!-- userbox 01 -->\n; badge : [[File:Icon.svg|16px]]\n; color : #124\n}}",
     );
 });
 
@@ -251,6 +268,8 @@ test("serializes pasted multiline quotation highlights as literal line breaks an
     const source = [
         "== Quotations ==",
         "{{/|quotations|data=",
+        "",
+        "<!-- quotation 01 -->",
         "; text : The original",
         "; text-link-label : See original",
         "; text-find : First line",

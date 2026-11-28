@@ -1,0 +1,284 @@
+/**
+ * @file tests/wpvg-assessor/ui/fixtures.ts
+ * Purpose: tests / ui / fixtures module.
+ *
+ * Table of contents:
+ * 1. Imports
+ * 2. FixtureOptions
+ * 3. PostedEdit
+ * 4. Constants and state
+ * 5. Exports
+ * 6. openArchiver
+ * 7. openCategoryAssessor
+ * 8. openAssessor
+ * 9. getPosts
+ * 10. navigateAssessor
+ * 11. chooseOption
+ * 12. getFixtureMessages
+ */
+
+import { fileURLToPath } from "node:url";
+
+import { expect, test as base } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import {
+    english,
+    japanese,
+    russian,
+    simplifiedChinese,
+    traditionalChinese,
+} from "../../../src/wpvg-assessor/i18n/index.ts";
+import { createI18n } from "../../../src/wpvg-assessor/support/i18n/messages.ts";
+
+interface FixtureOptions {
+    compact?: boolean;
+    archivePages?: Record<string, string>;
+    alreadyRegistered?: boolean;
+    articleCss?: string;
+    articleError?: boolean;
+    articleHtml?: Record<string, string>;
+    categoryError?: boolean;
+    categoryMembers?: string[];
+    categoryPageSize?: number;
+    conflict?: boolean;
+    creationDates?: Record<string, string>;
+    expired?: boolean;
+    failList?: boolean;
+    failTalk?: boolean;
+    failTalkTitle?: string;
+    failArchiveTitle?: string;
+    holdLoad?: boolean;
+    holdArticle?: boolean;
+    holdTalk?: boolean;
+    holdArchive?: boolean;
+    lead?: string;
+    locale?: string;
+    listConflict?: boolean;
+    listText?: string;
+    missingTitles?: string[];
+    pageTitle?: string;
+    sourcePages?: Record<string, { content: string; redirect?: boolean }>;
+    wikiId?: string;
+    userName?: string;
+    unavailableRegistrationList?: boolean;
+}
+
+interface PostedEdit {
+    basetimestamp?: string;
+    baserevid?: number;
+    starttimestamp: string;
+    summary: string;
+    text: string;
+    title: string;
+    token: string;
+}
+
+const root = new URL("../../../", import.meta.url);
+const fixtureFiles = new Map([
+    [
+        "/tests/ui/index.html",
+        ["tests/wpvg-assessor/ui/index.html", "text/html"],
+    ],
+    [
+        "/tests/ui/mediawiki.js",
+        ["tests/wpvg-assessor/ui/mediawiki.js", "text/javascript"],
+    ],
+    [
+        "/dist/wpvg-assessor.min.js",
+        ["dist/wpvg-assessor.min.js", "text/javascript"],
+    ],
+    [
+        "/fixtures/vue.js",
+        [
+            import.meta.resolve("vue/dist/vue.global.prod.js"),
+            "text/javascript",
+        ],
+    ],
+    [
+        "/fixtures/codex.js",
+        [
+            import.meta.resolve("@wikimedia/codex/dist/codex.umd.cjs"),
+            "text/javascript",
+        ],
+    ],
+    [
+        "/fixtures/codex.css",
+        [
+            import.meta.resolve("@wikimedia/codex/dist/codex.style.css"),
+            "text/css",
+        ],
+    ],
+]);
+
+/** Serve local fixtures at the eligible wiki origin and block other requests. */
+export const test = base.extend({
+    context: async ({ context }, use) => {
+        const unexpectedRequests: string[] = [];
+        await context.route("**/*", async (route) => {
+            const url = new URL(route.request().url());
+            const fixture = fixtureFiles.get(url.pathname);
+            if (url.origin === "https://zh.wikipedia.org" && fixture) {
+                const [path, contentType] = fixture;
+                await route.fulfill({
+                    path: fileURLToPath(new URL(path, root)),
+                    contentType: `${contentType}; charset=utf-8`,
+                    headers: { "Cache-Control": "no-store" },
+                });
+                return;
+            }
+            unexpectedRequests.push(url.href);
+            await route.abort("blockedbyclient");
+        });
+        await use(context);
+        expect(
+            unexpectedRequests,
+            "Unexpected network requests in offline tests",
+        ).toEqual([]);
+    },
+});
+
+export { expect };
+
+export async function openArchiver(page: Page, options: FixtureOptions = {}) {
+    const { msg } = getFixtureMessages(options.locale);
+    await page.clock.setFixedTime(new Date("2026-10-04T12:00:00Z"));
+    await page.addInitScript(
+        (fixtureOptions) => {
+            (globalThis as any).__fixtureOptions = fixtureOptions;
+        },
+        { pageTitle: "WikiProject:电子游戏/新进条目", ...options },
+    );
+    await page.goto("/tests/ui/index.html");
+    await page
+        .getByRole("link", { name: msg("tool.archiveName"), exact: true })
+        .click();
+    const dialog = page.getByRole("dialog", {
+        name: msg("archive.title"),
+        exact: true,
+    });
+    await expect(dialog).toBeVisible();
+    return dialog;
+}
+
+export async function openCategoryAssessor(
+    page: Page,
+    options: FixtureOptions = {},
+) {
+    const { msg } = getFixtureMessages(options.locale);
+    await page.addInitScript(
+        (fixtureOptions) => {
+            (globalThis as any).__fixtureOptions = fixtureOptions;
+        },
+        {
+            pageTitle: "Category:未评级电子游戏条目",
+            ...options,
+        },
+    );
+    await page.goto("/tests/ui/index.html");
+    await page
+        .getByRole("link", { name: msg("tool.batchName"), exact: true })
+        .click();
+    return page.getByRole("dialog", {
+        name: msg("batch.title"),
+        exact: true,
+    });
+}
+
+export async function openAssessor(page: Page, options: FixtureOptions = {}) {
+    const { msg } = getFixtureMessages(options.locale);
+    await page.addInitScript((fixtureOptions) => {
+        (globalThis as any).__fixtureOptions = fixtureOptions;
+    }, options);
+    await page.goto("/tests/ui/index.html");
+    await page
+        .getByRole("link", { name: msg("tool.name"), exact: true })
+        .click();
+    return prepareAssessmentView(page, options);
+}
+
+/** Existing review scenarios explicitly expand the default compact surface. */
+export async function prepareAssessmentView(
+    page: Page,
+    options: Pick<FixtureOptions, "compact" | "locale" | "pageTitle"> = {},
+) {
+    const { msg } = getFixtureMessages(options.locale);
+    const compact = page.getByRole("region", {
+        name: msg("dialog.miniMode"),
+        exact: true,
+    });
+    await expect(compact).toBeVisible();
+    await expect(compact.getByRole("switch")).toHaveCount(0);
+    if (options.compact) return compact;
+    await compact
+        .getByRole("button", { name: msg("dialog.expand"), exact: true })
+        .click();
+    await expect(
+        page.getByRole("textbox", {
+            name: msg("dialog.readySource"),
+            exact: true,
+        }),
+    ).toBeVisible();
+    const subjectTitle = (options.pageTitle ?? "Example game").replace(
+        /^Talk:/u,
+        "",
+    );
+    return page.getByRole("dialog", {
+        name: msg("dialog.title", { title: subjectTitle }),
+        exact: true,
+    });
+}
+
+/** Advance the staged draft to review, then explicitly confirm the wiki save. */
+export async function confirmAssessment(page: Page, locale = "en") {
+    const { msg } = getFixtureMessages(locale);
+    const postsBeforeReview = await getPosts(page);
+    await page
+        .getByRole("button", { name: msg("dialog.next"), exact: true })
+        .click();
+    const review = page.getByRole("dialog", {
+        name: msg("dialog.batchConfirmTitle"),
+        exact: true,
+    });
+    await expect(review).toBeVisible();
+    expect(await getPosts(page)).toEqual(postsBeforeReview);
+    await review
+        .getByRole("button", { name: msg("dialog.batchConfirm"), exact: true })
+        .click();
+    return review;
+}
+
+export async function getPosts(page: Page): Promise<PostedEdit[]> {
+    return page.evaluate(() => (globalThis as any).__fixture.posts);
+}
+
+export async function navigateAssessor(
+    page: Page,
+    title: string,
+    options: Pick<FixtureOptions, "compact"> = {},
+) {
+    await page.goto(`/tests/ui/index.html?page=${encodeURIComponent(title)}`);
+    await page
+        .getByRole("link", { name: "Article Assessor", exact: true })
+        .click();
+    return prepareAssessmentView(page, { ...options, pageTitle: title });
+}
+
+export async function chooseOption(page: Page, label: string, value: string) {
+    await page
+        .getByRole("group", { name: label, exact: true })
+        .getByRole("radio", { name: value, exact: true })
+        .check();
+}
+
+export function getFixtureMessages(locale = "en") {
+    return createI18n(
+        english,
+        {
+            "zh-Hans": simplifiedChinese,
+            "zh-Hant": traditionalChinese,
+            ja: japanese,
+            ru: russian,
+        },
+        locale,
+    );
+}

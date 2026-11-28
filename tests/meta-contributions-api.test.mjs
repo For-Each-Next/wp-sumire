@@ -55,6 +55,8 @@ const fullProfile = [
     "{{/|userboxes|data=",
     "",
     "<!-- Garden userbox -->",
+    "",
+    "<!-- userbox 01 -->",
     "; badge : GR",
     "; color : #ccc",
     "; text : I garden.",
@@ -67,6 +69,8 @@ const fullProfile = [
     "{{/|barnstars|site=zh|data=",
     "",
     "<!-- Garden award -->",
+    "",
+    "<!-- barnstar 01 -->",
     "; file : Garden award.svg",
     "; label : Garden award",
     "; extra : Preserve this field.",
@@ -76,9 +80,11 @@ const fullProfile = [
     "== Quotations ==",
     "{{/|quotations|show=1|data=",
     "",
+    "<!-- quotation 01 -->",
     "; text : The garden is quiet.",
     "; author : Jane Gardener",
     "",
+    "<!-- quotation 02 -->",
     "; text : The river keeps moving.",
     "",
     "}}",
@@ -420,6 +426,7 @@ test("each inline preview sends only the selected record through the authenticat
             },
             [
                 "{{/|working|site=zh|data=",
+                "<!-- In progress 01 -->",
                 "; title : Harbor Lights",
                 "; type : draft",
                 "; note : Draft notes",
@@ -436,6 +443,7 @@ test("each inline preview sends only the selected record through the authenticat
             },
             [
                 "{{/|userboxes|data=",
+                "<!-- userbox 01 -->",
                 "; badge : GR",
                 "; color : #ccc",
                 "; text : I garden.",
@@ -450,6 +458,7 @@ test("each inline preview sends only the selected record through the authenticat
             },
             [
                 "{{/|barnstars|site=zh|data=",
+                "<!-- barnstar 01 -->",
                 "; label : Garden award",
                 "; file : Garden award.svg",
                 "}}",
@@ -460,8 +469,14 @@ test("each inline preview sends only the selected record through the authenticat
                 section: "quotations",
                 defaultSite: "",
                 entry: profileEditor.quotations.entries[1],
+                number: 2,
             },
-            ["{{/|quotations|data=", "; text : The river keeps moving.", "}}"],
+            [
+                "{{/|quotations|data=",
+                "<!-- quotation 02 -->",
+                "; text : The river keeps moving.",
+                "}}",
+            ],
         ],
     ];
 
@@ -573,6 +588,43 @@ test("a userbox edit uses the lead template and links to the whole saved revisio
     assert.match(await profileEditor.save({ userboxes }), /PermaLink\/128$/);
     assert.equal(api.writes[0].text, expected);
     assert.equal(api.writes[0].summary, preview.suggestedSummary);
+});
+
+test("reviews and saves missing or stale profile record numbers on the selected tab", async () => {
+    const source = fullProfile
+        .replace("<!-- userbox 01 -->\n", "")
+        .replace("<!-- barnstar 01 -->", "<!-- barnstar 99 -->")
+        .replace("<!-- quotation 02 -->", "<!-- quotation 98 -->");
+    const cases = [
+        ["userboxes", "; badge : GR", "<!-- userbox 01 -->\n; badge : GR"],
+        ["barnstars", "<!-- barnstar 99 -->", "<!-- barnstar 01 -->"],
+        ["quotations", "<!-- quotation 98 -->", "<!-- quotation 02 -->"],
+    ];
+
+    for (const [section, before, after] of cases) {
+        const api = fakeMeta({ source });
+        const editor = await readMetaProfile(api);
+        assert.equal(editor[section].needsNumbering, true);
+        const edits = { [section]: editor[section].entries };
+        const expected = source.replace(before, after);
+        const preview = await editor.preview(edits);
+        assert.deepEqual(preview.sections, [section]);
+        assert.equal(
+            api.parses[0].text,
+            section === "quotations"
+                ? expected.replace("show=1", "show=2")
+                : expected,
+        );
+        assert.deepEqual(api.writes, []);
+
+        await editor.save(edits);
+        assert.equal(api.writes[0].text, expected);
+        const savedApi = fakeMeta({ source: expected });
+        const saved = await readMetaProfile(savedApi);
+        assert.equal(saved[section].needsNumbering, false);
+        await saved.save({ [section]: saved[section].entries });
+        assert.deepEqual(savedApi.writes, []);
+    }
 });
 
 test("a quotation edit preserves an unavailable section and pending Contributions numbering", async () => {

@@ -61,7 +61,7 @@ interface ProfilePreview {
     suggestedSummary: string;
 }
 
-export type ProfileItem =
+export type ProfileItem = { number?: number } & (
     | {
           section: "contributions";
           group: ContributionSectionId;
@@ -72,12 +72,23 @@ export type ProfileItem =
           section: ProfileRecordSectionId;
           defaultSite: string;
           entry: ProfileRecord;
-      };
+      }
+);
 
 export function profileItemSource(item: ProfileItem): string {
     return item.section === "contributions"
-        ? renderContributionItem(item.group, item.defaultSite, item.entry)
-        : renderProfileRecordItem(item.section, item.defaultSite, item.entry);
+        ? renderContributionItem(
+              item.group,
+              item.defaultSite,
+              item.entry,
+              item.number,
+          )
+        : renderProfileRecordItem(
+              item.section,
+              item.defaultSite,
+              item.entry,
+              item.number,
+          );
 }
 
 export interface MetaProfile {
@@ -308,14 +319,17 @@ export async function readMetaProfile(api: MetaApi): Promise<MetaProfile> {
         barnstars: barnstars && {
             defaultSite: barnstars.defaultSite,
             entries: barnstars.entries,
+            needsNumbering: barnstars.needsNumbering,
         },
         quotations: quotations && {
             defaultSite: quotations.defaultSite,
             entries: quotations.entries,
+            needsNumbering: quotations.needsNumbering,
         },
         userboxes: userboxes && {
             defaultSite: userboxes.defaultSite,
             entries: userboxes.entries,
+            needsNumbering: userboxes.needsNumbering,
         },
         async preview(edits) {
             const { text, sections, suggestedSummary } = prepareText(

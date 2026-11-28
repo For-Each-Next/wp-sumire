@@ -66,17 +66,21 @@ interface SourceContext {
     revisionId: number;
 }
 
-interface SourceRevision {
-    title: string;
+interface RevisionPosition {
     revisionId: number;
     timestamp: string;
+}
+
+export interface WikitextRevision extends RevisionPosition {
+    title: string;
+    pageId: number;
+    namespace: number;
     text: string;
 }
 
 interface TargetEdit {
     startTimestamp: string;
-    baseTimestamp: string;
-    baseRevisionId: number;
+    revision: WikitextRevision | null;
     token: string;
     watch: boolean;
     watchExpiry?: string;
@@ -93,6 +97,9 @@ export class DraftCopyError extends Error {
 }
 
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/u;
+const COPY_SUMMARY =
+    /^拷貝自\[\[([^\]]+)\]\]（\[\[Special:PermaLink\/(\d+)\|(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) UTC\]\]版）/u;
+const WIKITEXT_PROPERTIES = "ids|timestamp|content|contentmodel";
 const FILE_NAMESPACE = 6;
 const TITLE_LIMIT = 50;
 
@@ -100,40 +107,61 @@ function isTimestamp(value: unknown): value is string {
     return typeof value === "string" && ISO_TIMESTAMP.test(value);
 }
 
-export async function readSource(
-    mw: MediaWiki,
-    api: WikiApi,
-    context: SourceContext,
-): Promise<SourceRevision> {
-    const result = await api.get({
-        action: "query",
-        prop: "revisions",
-        revids: context.revisionId,
-        rvprop: "ids|timestamp|content|contentmodel",
-        rvslots: "main",
-    });
-    const page = readQueryPages(readActionQuery(result))?.[0] ?? null;
+function readWikitextRevision(
+    page: Record<string, unknown> | null,
+): WikitextRevision | null {
     const revision = readFirstRevision(page);
     const slot = readRecord(readRecord(revision?.slots)?.main);
     if (
         typeof page?.title !== "string" ||
-        page.pageid !== context.pageId ||
-        page.ns !== context.title.getNamespaceId() ||
-        mw.Title.newFromText(page.title)?.getPrefixedText() !==
-            context.title.getPrefixedText() ||
-        revision?.revid !== context.revisionId ||
+        !isPositiveSafeInteger(page.pageid) ||
+        typeof page.ns !== "number" ||
+        !isPositiveSafeInteger(revision?.revid) ||
         !isTimestamp(revision.timestamp) ||
         slot?.contentmodel !== "wikitext" ||
         typeof slot.content !== "string"
     ) {
-        throw new DraftCopyError("sourceUnavailable");
+        return null;
     }
     return {
         title: page.title,
+        pageId: page.pageid,
+        namespace: page.ns,
         revisionId: revision.revid,
         timestamp: revision.timestamp,
         text: slot.content,
     };
+}
+
+async function readRevision(api: WikiApi, revisionId: number) {
+    const result = await api.get({
+        action: "query",
+        prop: "revisions",
+        revids: revisionId,
+        rvprop: WIKITEXT_PROPERTIES,
+        rvslots: "main",
+    });
+    const page = readQueryPages(readActionQuery(result))?.[0] ?? null;
+    const revision = readWikitextRevision(page);
+    return revision?.revisionId === revisionId ? revision : null;
+}
+
+export async function readSource(
+    mw: MediaWiki,
+    api: WikiApi,
+    context: SourceContext,
+): Promise<WikitextRevision> {
+    const revision = await readRevision(api, context.revisionId);
+    if (
+        !revision ||
+        revision.pageId !== context.pageId ||
+        revision.namespace !== context.title.getNamespaceId() ||
+        mw.Title.newFromText(revision.title)?.getPrefixedText() !==
+            context.title.getPrefixedText()
+    ) {
+        throw new DraftCopyError("sourceUnavailable");
+    }
+    return revision;
 }
 
 export async function findLocalReferences(
@@ -212,7 +240,8 @@ export async function readTarget(
         titles: target.getPrefixedText(),
         prop: "info|revisions",
         inprop: "watched",
-        rvprop: "ids|timestamp",
+        rvprop: WIKITEXT_PROPERTIES,
+        rvslots: "main",
         curtimestamp: true,
         meta: "tokens",
         type: "csrf",
@@ -222,7 +251,9 @@ export async function readTarget(
     const startTimestamp = readRecord(result)?.curtimestamp;
     const token = readRecord(query?.tokens)?.csrftoken;
     if (
-        !page ||
+        typeof page?.title !== "string" ||
+        mw.Title.newFromText(page.title)?.getPrefixedText() !==
+            target.getPrefixedText() ||
         page.ns !== target.getNamespaceId() ||
         (page.contentmodel && page.contentmodel !== "wikitext") ||
         !isTimestamp(startTimestamp) ||
@@ -232,25 +263,15 @@ export async function readTarget(
         throw new DraftCopyError("targetUnavailable");
     }
     const missing = page.missing === true;
-    let baseRevisionId = 0;
-    let baseTimestamp = startTimestamp;
-    if (!missing) {
-        const base = readFirstRevision(page);
-        if (
-            !isPositiveSafeInteger(base?.revid) ||
-            !isTimestamp(base.timestamp)
-        ) {
-            throw new DraftCopyError("targetUnavailable");
-        }
-        baseRevisionId = base.revid;
-        baseTimestamp = base.timestamp;
+    const revision = missing ? null : readWikitextRevision(page);
+    if (!missing && !revision) {
+        throw new DraftCopyError("targetUnavailable");
     }
     const optionEnabled = (name: string) =>
         Boolean(Number(mw.user.options.get(name)));
     return {
         startTimestamp,
-        baseTimestamp,
-        baseRevisionId,
+        revision,
         token,
         watch:
             page.watched === true ||
@@ -264,6 +285,136 @@ export async function readTarget(
     };
 }
 
+interface CopyRecord extends RevisionPosition {
+    copied: RevisionPosition;
+}
+
+function isAfter(a: RevisionPosition, b: RevisionPosition): boolean {
+    return (
+        a.timestamp > b.timestamp ||
+        (a.timestamp === b.timestamp && a.revisionId > b.revisionId)
+    );
+}
+
+async function readCopyHistory(
+    mw: MediaWiki,
+    api: WikiApi,
+    snapshot: WikitextRevision,
+    other: WikitextRevision,
+    historyEnd?: string,
+): Promise<{ copy: CopyRecord | null; earliest: string }> {
+    let earliest = snapshot.timestamp;
+    if (historyEnd && earliest < historyEnd) return { copy: null, earliest };
+
+    const otherTitle = mw.Title.newFromText(other.title)?.getPrefixedText();
+    let next: ApiParameters = {};
+    do {
+        const result = await api.get({
+            action: "query",
+            prop: "revisions",
+            pageids: snapshot.pageId,
+            rvstartid: snapshot.revisionId,
+            ...(historyEnd ? { rvend: historyEnd } : {}),
+            rvlimit: "max",
+            rvprop: "ids|timestamp|comment",
+            ...next,
+        });
+        const page = readQueryPages(readActionQuery(result))?.[0];
+        if (
+            page?.pageid !== snapshot.pageId ||
+            !Array.isArray(page.revisions)
+        ) {
+            throw new DraftCopyError("mergeUnavailable");
+        }
+        for (const value of page.revisions) {
+            const revision = readRecord(value);
+            if (
+                !isPositiveSafeInteger(revision?.revid) ||
+                !isTimestamp(revision.timestamp)
+            ) {
+                throw new DraftCopyError("mergeUnavailable");
+            }
+            const position = {
+                revisionId: revision.revid,
+                timestamp: revision.timestamp,
+            };
+            if (isAfter(position, snapshot)) continue;
+            earliest = revision.timestamp;
+            const attribution =
+                typeof revision.comment === "string"
+                    ? COPY_SUMMARY.exec(revision.comment)
+                    : null;
+            if (!attribution) continue;
+            const copied = {
+                revisionId: Number(attribution[2]),
+                timestamp: `${attribution[3]}T${attribution[4]}Z`,
+            };
+            if (
+                isPositiveSafeInteger(copied.revisionId) &&
+                !isAfter(copied, other) &&
+                !isAfter(copied, position) &&
+                mw.Title.newFromText(attribution[1])?.getPrefixedText() ===
+                    otherTitle
+            ) {
+                return { copy: { ...position, copied }, earliest };
+            }
+        }
+        const continuation = readRecord(readRecord(result)?.continue);
+        if (!continuation) break;
+        if (
+            typeof continuation.continue !== "string" ||
+            typeof continuation.rvcontinue !== "string" ||
+            !continuation.rvcontinue ||
+            continuation.rvcontinue === next.rvcontinue
+        ) {
+            throw new DraftCopyError("mergeUnavailable");
+        }
+        next = {
+            continue: continuation.continue,
+            rvcontinue: continuation.rvcontinue,
+        };
+    } while (next.rvcontinue);
+    return { copy: null, earliest };
+}
+
+export async function readCopyBase(
+    mw: MediaWiki,
+    api: WikiApi,
+    article: WikitextRevision,
+    draft: WikitextRevision,
+): Promise<WikitextRevision | null> {
+    const draftHistory = await readCopyHistory(mw, api, draft, article);
+    // The draft's creation or latest copy bounds the article history search.
+    const articleHistory = await readCopyHistory(
+        mw,
+        api,
+        article,
+        draft,
+        draftHistory.earliest,
+    );
+    const draftCopy = draftHistory.copy;
+    const articleCopy = articleHistory.copy;
+    const latestIsDraft =
+        draftCopy && (!articleCopy || isAfter(draftCopy, articleCopy));
+    const copy = latestIsDraft ? draftCopy : articleCopy;
+    if (!copy) return null;
+
+    const other = latestIsDraft ? article : draft;
+    const base =
+        copy.copied.revisionId === other.revisionId
+            ? other
+            : await readRevision(api, copy.copied.revisionId);
+    if (
+        !base ||
+        base.pageId !== other.pageId ||
+        base.namespace !== other.namespace ||
+        base.timestamp !== copy.copied.timestamp
+    ) {
+        throw new DraftCopyError("mergeUnavailable");
+    }
+    return base;
+}
+
 function formTimestamp(timestamp: string): string {
     return timestamp.replace(/\D/gu, "");
 }
@@ -272,7 +423,7 @@ function editSummary({
     title,
     revisionId,
     timestamp,
-}: SourceRevision): string {
+}: WikitextRevision): string {
     const date = timestamp.replace("T", " ").replace("Z", " UTC");
     return `拷貝自[[${title}]]（[[Special:PermaLink/${revisionId}|${date}]]版）`;
 }
@@ -281,7 +432,7 @@ export function openEditReview(
     mw: MediaWiki,
     document: Document,
     target: WikiTitle,
-    source: SourceRevision,
+    source: WikitextRevision,
     text: string,
     edit: TargetEdit,
     mirroring: boolean,
@@ -295,12 +446,14 @@ export function openEditReview(
     form.hidden = true;
     // A preview or diff POST opens the regular edit form for review.
     const fields = {
-        [mirroring ? "wpPreview" : "wpDiff"]: "1",
+        [mirroring && !edit.revision ? "wpPreview" : "wpDiff"]: "1",
         wpTextbox1: text,
         wpSummary: editSummary(source),
         wpStarttime: formTimestamp(edit.startTimestamp),
-        wpEdittime: formTimestamp(edit.baseTimestamp),
-        editRevId: edit.baseRevisionId,
+        wpEdittime: formTimestamp(
+            edit.revision?.timestamp ?? edit.startTimestamp,
+        ),
+        editRevId: edit.revision?.revisionId ?? 0,
         wpEditToken: edit.token,
         ...(edit.watch ? { wpWatchthis: "1" } : {}),
         ...(edit.watch && edit.watchExpiry

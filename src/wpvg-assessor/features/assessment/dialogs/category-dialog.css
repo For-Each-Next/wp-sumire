@@ -1,0 +1,125 @@
+/**
+ * @file src/wpvg-assessor/features/assessment/dialogs/category-dialog.css
+ * Purpose: src / features / assessment / dialogs / category dialog module.
+ *
+ * Table of contents:
+ * 1. Styles and responsive rules
+ */
+
+.sumire-wpvg-assessor-category-dialog.cdx-dialog {
+    max-width: calc(
+        var(--sumire-wpvg-assessor-category-preview-width) +
+            var(--sumire-wpvg-assessor-category-contents-width, 0px) + 2 *
+            var(--spacing-150, 1.5rem) + 2px
+    );
+    height: calc(100dvh - 2rem);
+    max-height: calc(100dvh - 2rem);
+}
+
+@media (min-width: 75rem) {
+    .sumire-wpvg-assessor-category-dialog--with-contents {
+        --sumire-wpvg-assessor-category-contents-width: 12rem;
+    }
+}
+
+.sumire-wpvg-assessor-category-dialog .cdx-dialog__body {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.sumire-wpvg-assessor-category-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-150, 1.5rem);
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+}
+
+.sumire-wpvg-assessor-category-status,
+.sumire-wpvg-assessor-category-form,
+.sumire-wpvg-assessor-category-review-content,
+.sumire-wpvg-assessor-category-footer {
+    display: grid;
+    gap: var(--spacing-100, 1rem);
+    min-inline-size: 0;
+}
+
+.sumire-wpvg-assessor-category-status:empty {
+    display: none;
+}
+
+.sumire-wpvg-assessor-category-article {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: var(--spacing-100, 1rem);
+    min-inline-size: 0;
+}
+
+.sumire-wpvg-assessor-category-title {
+    border: 0;
+    font-size: var(--font-size-large, 1.125rem);
+    font-weight: var(--font-weight-bold, 700);
+    line-height: inherit;
+    margin: 0;
+    padding: 0;
+    overflow-wrap: anywhere;
+}
+
+.sumire-wpvg-assessor-category-preview {
+    flex: 1 1 auto;
+    min-height: 12rem;
+    width: 100%;
+    box-sizing: border-box;
+    border: 0;
+}
+
+.sumire-wpvg-assessor-category-form {
+    flex: 0 0 auto;
+}
+
+.sumire-wpvg-assessor-category-form > .cdx-field,
+.sumire-wpvg-assessor-category-review-content > .cdx-field {
+    margin: 0;
+    min-inline-size: 0;
+}
+
+.sumire-wpvg-assessor-category-ratings,
+.sumire-wpvg-assessor-category-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-75, 0.75rem);
+}
+
+.sumire-wpvg-assessor-category-ratings {
+    align-items: center;
+}
+
+.sumire-wpvg-assessor-category-rating-group {
+    flex: 0 0 auto;
+    max-width: 100%;
+}
+
+.sumire-wpvg-assessor-category-review-content pre {
+    margin: 0;
+    max-height: 10rem;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    background: var(--background-color-neutral-subtle, #f8f9fa);
+    padding: var(--spacing-75, 0.75rem);
+}
+
+.sumire-wpvg-assessor-category-actions {
+    justify-content: flex-end;
+}
+
+@media (max-width: 40rem) {
+    .sumire-wpvg-assessor-category-dialog.cdx-dialog {
+        width: 100%;
+        height: 100dvh;
+        max-height: 100dvh;
+    }
+}

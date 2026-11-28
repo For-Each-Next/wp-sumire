@@ -6,6 +6,7 @@ import {
     generatedField,
     headingsOf,
     normalizeValue,
+    numberRecords,
     ProfileFormatError,
     readDataTemplate,
     readDefaultSite,
@@ -74,6 +75,7 @@ export interface ProfileRecord {
 export interface ProfileRecordSection {
     defaultSite: string;
     entries: ProfileRecord[];
+    needsNumbering: boolean;
 }
 
 function readSection(source: string, id: ProfileRecordSectionId) {
@@ -153,6 +155,7 @@ export function renderProfileRecordItem(
     id: ProfileRecordSectionId,
     defaultSite: string,
     entry: ProfileRecord,
+    number = 1,
 ): string {
     const data = renderNewRecord(
         id,
@@ -162,6 +165,8 @@ export function renderProfileRecordItem(
     return renderRecordTemplate(
         id,
         data,
+        id,
+        number,
         id === "barnstars" ? defaultSite : undefined,
     );
 }
@@ -171,6 +176,7 @@ export function parseProfileRecords(
     id: ProfileRecordSectionId,
 ) {
     const section = readSection(source, id);
+    const numbered = numberRecords(section.data, section.newline, id);
     const keys = storedRecordFields[id];
     const required = requiredProfileFields[id];
     const defaultSite =
@@ -211,7 +217,11 @@ export function parseProfileRecords(
             }
             return record.render();
         });
-        const data = renderRecords(section, rendered);
+        const renderedData = renderRecords(section, rendered);
+        const data =
+            renderedData === section.data
+                ? numbered
+                : numberRecords(renderedData, section.newline, id);
         if (data === section.data) return source;
 
         const { start, end } = section.span;
@@ -238,7 +248,12 @@ export function parseProfileRecords(
         return result;
     }
 
-    return { defaultSite, entries, withEntries };
+    return {
+        defaultSite,
+        entries,
+        needsNumbering: numbered !== section.data,
+        withEntries,
+    };
 }
 
 export function showAllQuotations(source: string): string {

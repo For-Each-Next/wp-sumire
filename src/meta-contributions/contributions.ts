@@ -1,14 +1,13 @@
 import { scanWikitext, type Span } from "../shared/wikitext-scan.ts";
 import { completedAssessmentCodes } from "./assessment.ts";
 import {
-    commentRanges,
     editableValue,
     editRecord,
     fieldValue,
     generatedField,
     headingsOf,
-    linesOf,
     normalizeValue,
+    numberRecords,
     ProfileFormatError as ContributionFormatError,
     readDataTemplate,
     readDefaultSite,
@@ -17,7 +16,6 @@ import {
     renderRecordTemplate,
     renderRecords,
     sourceText,
-    type Line,
     type RecordSource as DataRecord,
     type RenderedLine,
 } from "./profile-wikitext.ts";
@@ -52,17 +50,14 @@ const sectionInfo = {
     working: {
         heading: "in progress",
         mode: "working",
-        recordName: "In progress",
     },
     articles: {
         heading: "articles",
         mode: "contributions",
-        recordName: "Article",
     },
     reviews: {
         heading: "reviews",
         mode: "contributions",
-        recordName: "Review",
     },
 } as const;
 const sectionIds = Object.keys(sectionInfo) as ContributionSectionId[];
@@ -283,6 +278,7 @@ export function renderContributionItem(
     group: ContributionSectionId,
     defaultSite: string,
     entry: ContributionEntry,
+    number = 1,
 ): string {
     const normalized = normalizeEntry(entry);
     if (group === "working" && !editableValue(normalized.type).trim()) {
@@ -291,7 +287,13 @@ export function renderContributionItem(
         );
     }
     const data = renderRecord("\n", normalized, undefined);
-    return renderRecordTemplate(sectionInfo[group].mode, data, defaultSite);
+    return renderRecordTemplate(
+        sectionInfo[group].mode,
+        data,
+        group,
+        number,
+        defaultSite,
+    );
 }
 
 function renderSection(
@@ -307,50 +309,6 @@ function renderSection(
     );
 }
 
-function numberSection(data: string, section: SectionSource): string {
-    const commentStarts = new Set(
-        commentRanges(data).map(({ start }) => start),
-    );
-    const unnumbered = linesOf(data)
-        .filter((line) => {
-            const trimmed = line.text.trimStart();
-            const start = line.start + line.text.length - trimmed.length;
-            return (
-                !commentStarts.has(start) ||
-                !/^<!-- (?:In progress|Article|Review) [0-9]+ -->$/u.test(
-                    trimmed.trimEnd(),
-                )
-            );
-        })
-        .map(({ text, newline }) => text + newline)
-        .join("");
-
-    const records = readRecords(unnumbered);
-    const recordStarts = new Set(records.map(({ start }) => start));
-    let number = records.length;
-    let previous: Line | undefined;
-    const output: string[] = [];
-    for (const line of linesOf(unnumbered)) {
-        if (recordStarts.has(line.start)) {
-            const newline = line.newline || section.newline;
-            // MediaWiki removes the comment line before Lua reads the block.
-            // Keep a physical blank line so distinct records stay distinct.
-            if (!previous) output.push(newline, newline);
-            else if (previous.start === 0 || previous.text.trim())
-                output.push(newline);
-            const ordinal = String(number).padStart(2, "0");
-            number--;
-            output.push(
-                `<!-- ${sectionInfo[section.id].recordName} ${ordinal} -->`,
-                newline,
-            );
-        }
-        output.push(line.text, line.newline);
-        previous = line;
-    }
-    return output.join("");
-}
-
 export function parseContributions(source: string): {
     sections: ContributionSection[];
     numberingNeeded: ContributionSectionId[];
@@ -363,7 +321,7 @@ export function parseContributions(source: string): {
     const numbered = new Map(
         original.map((section) => [
             section.id,
-            numberSection(section.data, section),
+            numberRecords(section.data, section.newline, section.id),
         ]),
     );
     const numberingNeeded = original
@@ -474,7 +432,7 @@ export function parseContributions(source: string): {
                 data =
                     data === section.data
                         ? (numbered.get(section.id) ?? data)
-                        : numberSection(data, section);
+                        : numberRecords(data, section.newline, section.id);
             }
             parts.push(source.slice(offset, section.span.start), data);
             const start = section.span.start + shift;

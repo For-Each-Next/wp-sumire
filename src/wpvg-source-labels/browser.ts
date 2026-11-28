@@ -383,7 +383,16 @@ export function startWpvgSourceLabels(
 ): void {
     const { location, document } = window;
     const site = reviewSite(location.hostname);
-    if (location.protocol !== "https:" || site === null) return;
+    if (
+        location.protocol !== "https:" ||
+        site === null ||
+        typeof GM_getValue !== "function" ||
+        typeof GM_setValue !== "function" ||
+        typeof GM_addStyle !== "function" ||
+        typeof GM_registerMenuCommand !== "function" ||
+        typeof GM_xmlhttpRequest !== "function"
+    )
+        return;
 
     const marker = "data-sumire-wpvg-started";
     const run = () => {

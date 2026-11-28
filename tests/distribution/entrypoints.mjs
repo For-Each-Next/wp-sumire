@@ -18,7 +18,12 @@ function read(name) {
 }
 
 async function run(names, globals) {
-    const context = createContext({ URL, URLSearchParams, ...globals });
+    const context = createContext({
+        TextEncoder,
+        URL,
+        URLSearchParams,
+        ...globals,
+    });
     for (const filename of names) {
         new Script(await read(filename), { filename }).runInContext(context);
     }
@@ -124,21 +129,77 @@ test("the distribution contains the complete artifact set at the product version
             "draft-copy.user.js",
             "meta-contributions.min.js",
             "meta-contributions.user.js",
-            "sumire.full.user.js",
             "sumire.min.js",
-            "sumire.runtime.js",
             "sumire.user.js",
+            "wpvg-assessor.min.js",
+            "wpvg-assessor.user.js",
+            "wpvg-source-labels.min.js",
             "wpvg-source-labels.user.js",
         ],
     );
-    const loader = await read("sumire.user.js");
-    assert.match(loader, /==\/UserScript==\n$/u);
-    assert.match(loader, /^\/\/ @sandbox\s+JavaScript$/mu);
-    assert.match(loader, /^\/\/ @grant\s+unsafeWindow$/mu);
-    const standalone = await read("wpvg-source-labels.user.js");
-    assert.match(standalone, /^\/\/ @name\s+WPVG Source Labels$/mu);
-    assert.match(standalone, /^\/\/ @namespace\s+personal-gadgets$/mu);
-    assert.match(standalone, /^\/\/ @sandbox\s+DOM$/mu);
+    const aggregate = await Promise.all(
+        ["sumire.user.js", "sumire.min.js"].map(read),
+    );
+    assert.match(aggregate[0], /^[ \t]+function startWpvgSourceLabels\(/mu);
+    assert.ok(aggregate[1].length < aggregate[0].length);
+    for (const source of aggregate) {
+        assert.match(source, /^\/\/ @sandbox\s+JavaScript$/mu);
+        assert.match(source, /^\/\/ @grant\s+unsafeWindow$/mu);
+        assert.match(
+            source,
+            /^\/\/ @updateURL\s+https:\/\/github\.com\/For-Each-Next\/wp-sumire\/releases\/latest\/download\/sumire\.user\.js$/mu,
+        );
+    }
+    const draftCopy = await read("draft-copy.user.js");
+    assert.match(draftCopy, /^\/\/ @license\s+CC0-1\.0 AND BSD-3-Clause$/mu);
+    for (const name of [
+        "draft-copy.user.js",
+        "draft-copy.min.js",
+        "sumire.user.js",
+        "sumire.min.js",
+    ]) {
+        assert.match(
+            await read(name),
+            /Copyright \(c\) 2009-2015, Kevin Decker/u,
+            name,
+        );
+    }
+    const assessor = await read("wpvg-assessor.user.js");
+    assert.match(assessor, /^\/\/ @name\s+Article Assessor$/mu);
+    assert.match(assessor, /^\/\/ @namespace\s+wpvg-assessor$/mu);
+    assert.match(assessor, /^\/\/ @grant\s+none$/mu);
+    assert.match(assessor, /^\/\/ @sandbox\s+raw$/mu);
+    assert.match(
+        assessor,
+        /^\/\/ @license\s+CC0-1\.0 AND MIT AND CC-BY-4\.0$/mu,
+    );
+    assert.deepEqual(
+        [...assessor.matchAll(/^\/\/ @match\s+(\S+)$/gmu)].map(
+            ([, url]) => url,
+        ),
+        [
+            "https://zh.wikipedia.org/*",
+            "https://petscan.toolforge.org/*",
+            "https://petscan.wmcloud.org/*",
+        ],
+    );
+    const licenseNotice = "Copyright (c) 2011-2022 Wikimedia Design & OOUI";
+    for (const name of [
+        "wpvg-assessor.user.js",
+        "wpvg-assessor.min.js",
+        "sumire.user.js",
+        "sumire.min.js",
+    ]) {
+        assert.ok((await read(name)).includes(licenseNotice), name);
+    }
+    const standalone = await Promise.all(
+        ["wpvg-source-labels.user.js", "wpvg-source-labels.min.js"].map(read),
+    );
+    for (const source of standalone) {
+        assert.match(source, /^\/\/ @name\s+WPVG Source Labels$/mu);
+        assert.match(source, /^\/\/ @namespace\s+personal-gadgets$/mu);
+        assert.match(source, /^\/\/ @sandbox\s+DOM$/mu);
+    }
     const reviewGrants = [
         "GM_addStyle",
         "GM_getValue",
@@ -146,7 +207,8 @@ test("the distribution contains the complete artifact set at the product version
         "GM_registerMenuCommand",
         "GM_xmlhttpRequest",
     ];
-    for (const source of [standalone, loader]) {
+    for (const source of [...aggregate, ...standalone]) {
+        assert.doesNotMatch(source, /^\/\/ @require\s/mu);
         assert.deepEqual(
             [...source.matchAll(/^\/\/ @grant\s+(GM_\w+)$/gmu)].map(
                 (match) => match[1],
@@ -157,27 +219,29 @@ test("the distribution contains the complete artifact set at the product version
     }
 });
 
-test("the cached aggregate runtime uses the page Wiki object for Draft Copy", async () => {
-    const { browser, mw, items, warnings } = wikiPage(
-        "https://zh.m.wikipedia.org/wiki/Example",
-        {
-            wgAction: "view",
-            wgDBname: "zhwiki",
-            wgNamespaceNumber: 0,
-            wgArticleId: 42,
-            wgRevisionId: 124,
-            wgPageName: "Example",
-            wgPageContentModel: "wikitext",
-            wgNamespaceIds: { draft: 118 },
-        },
-    );
-    await run(["sumire.runtime.js", "sumire.user.js"], {
-        window: browser,
-        unsafeWindow: { mw },
+for (const name of ["sumire.user.js", "sumire.min.js"]) {
+    test(`${name} uses the page Wiki object for Draft Copy`, async () => {
+        const { browser, mw, items, warnings } = wikiPage(
+            "https://zh.m.wikipedia.org/wiki/Example",
+            {
+                wgAction: "view",
+                wgDBname: "zhwiki",
+                wgNamespaceNumber: 0,
+                wgArticleId: 42,
+                wgRevisionId: 124,
+                wgPageName: "Example",
+                wgPageContentModel: "wikitext",
+                wgNamespaceIds: { draft: 118 },
+            },
+        );
+        const context = name.endsWith(".user.js")
+            ? { window: browser, unsafeWindow: { mw } }
+            : { window: { ...browser, mw } };
+        await run([name], context);
+        assert.deepEqual([...items.keys()], ["ca-draft-copy"]);
+        assert.deepEqual(warnings, []);
     });
-    assert.deepEqual([...items.keys()], ["ca-draft-copy"]);
-    assert.deepEqual(warnings, []);
-});
+}
 
 test("native and standalone Wiki scripts share one profile action on a local wiki", async () => {
     const { browser, mw, items, mounts, warnings } = wikiPage(
@@ -210,10 +274,10 @@ test("manager scripts start a single WPVG observer on a supported host", async (
     const { window, grants, reads, commands } = reviewPage(
         "https://www.metacritic.com/game/example/",
     );
-    await run(
-        ["sumire.runtime.js", "sumire.user.js", "wpvg-source-labels.user.js"],
-        { window, ...grants },
-    );
+    await run(["sumire.user.js", "wpvg-source-labels.min.js"], {
+        window,
+        ...grants,
+    });
     assert.deepEqual(reads, [
         "wpvg-source-cache-v2",
         "wpvg-source-settings-v1",
@@ -221,22 +285,27 @@ test("manager scripts start a single WPVG observer on a supported host", async (
     assert.equal(commands.length, 3);
 });
 
-test("the self-contained aggregate runs WPVG without loading project code", async () => {
-    const { window, grants, reads, commands } = reviewPage(
-        "https://opencritic.com/game/42/example/",
-    );
-    const full = await read("sumire.full.user.js");
-    assert.doesNotMatch(full, /^\/\/ @require\s/mu);
-    await run(["sumire.full.user.js"], { window, ...grants });
-    assert.deepEqual(reads, [
-        "wpvg-source-cache-v2",
-        "wpvg-source-settings-v1",
-    ]);
-    assert.equal(commands.length, 3);
-});
+for (const name of [
+    "sumire.user.js",
+    "sumire.min.js",
+    "wpvg-source-labels.user.js",
+    "wpvg-source-labels.min.js",
+]) {
+    test(`${name} starts WPVG with manager permissions`, async () => {
+        const { window, grants, reads, commands } = reviewPage(
+            "https://opencritic.com/game/42/example/",
+        );
+        await run([name], { window, ...grants });
+        assert.deepEqual(reads, [
+            "wpvg-source-cache-v2",
+            "wpvg-source-settings-v1",
+        ]);
+        assert.equal(commands.length, 3);
+    });
+}
 
-test("native Wiki scripts leave review hosts free of manager API calls", async () => {
+test("minified scripts skip review startup without manager permissions", async () => {
     const { window, commands } = reviewPage("https://opencritic.com/");
-    await run(["sumire.min.js"], { window });
+    await run(["sumire.min.js", "wpvg-source-labels.min.js"], { window });
     assert.deepEqual(commands, []);
 });

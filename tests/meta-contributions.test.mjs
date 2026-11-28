@@ -455,8 +455,19 @@ test("rejects missing, duplicate, and out-of-range note origins", () => {
     }
 });
 
-test("backfills every subsection with reverse numbering and preserves CRLF and record data", () => {
-    const source = page(working, articles, reviews).replaceAll("\n", "\r\n");
+test("backfills all contribution numbers in place and preserves CRLF and record data", () => {
+    const drafts = working.replace(
+        "\n}}",
+        "\n; title : Second draft\n; type : draft\n\n}}",
+    );
+    const assessments = reviews.replace(
+        "\n}}",
+        "\n; title : Second assessment\n; status : pr\n\n}}",
+    );
+    const source = page(drafts, articles, assessments).replaceAll(
+        "\n",
+        "\r\n",
+    );
     const parsed = parseContributions(source);
     assert.deepEqual(parsed.numberingNeeded, [
         "working",
@@ -467,14 +478,24 @@ test("backfills every subsection with reverse numbering and preserves CRLF and r
 
     const output = parsed.withSections([], true);
     const expected = page(
-        working.replace("; title :", "<!-- In progress 01 -->\n; title :"),
+        drafts
+            .replace("; title :", "<!-- In progress 02 -->\n; title :")
+            .replace(
+                "; title : Second draft",
+                "<!-- In progress 01 -->\n; title : Second draft",
+            ),
         articles
-            .replace("; SITE :", "<!-- Article 02 -->\n; SITE :")
+            .replace("; SITE :", "<!-- Article 01 -->\n; SITE :")
             .replace(
                 "; title : Another example",
-                "<!-- Article 01 -->\n; title : Another example",
+                "<!-- Article 02 -->\n; title : Another example",
             ),
-        reviews.replace("; title :", "<!-- Review 01 -->\n; title :"),
+        assessments
+            .replace("; title :", "<!-- Review 02 -->\n; title :")
+            .replace(
+                "; title : Second assessment",
+                "<!-- Review 01 -->\n; title : Second assessment",
+            ),
     ).replaceAll("\n", "\r\n");
     assert.equal(output, expected);
 
@@ -509,8 +530,8 @@ test("replaces stale separators while preserving inline and unrelated comments",
     const parsed = parseContributions(source);
     const output = parsed.withSections([], true);
     assert.deepEqual(output.match(/^<!-- Article \d+ -->$/gmu), [
-        "<!-- Article 02 -->",
         "<!-- Article 01 -->",
+        "<!-- Article 02 -->",
     ]);
     assert.doesNotMatch(output, /<!-- Review 36 -->/u);
     assert.match(output, /; note : A separate note <!-- Article 96 -->/u);
@@ -534,10 +555,11 @@ test("renumbers after a move and removes the last record marker in an empty sect
 
     assert.doesNotMatch(output, /<!-- In progress \d+ -->/u);
     assert.deepEqual(output.match(/^<!-- Article \d+ -->$/gmu), [
-        "<!-- Article 03 -->",
-        "<!-- Article 02 -->",
         "<!-- Article 01 -->",
+        "<!-- Article 02 -->",
+        "<!-- Article 03 -->",
     ]);
+    assert.match(output, /<!-- Article 01 -->\n; title : Sandbox draft/u);
     assert.match(output, /<!-- Review 01 -->\n; title : Talk:Review subject/u);
     assert.deepEqual(parseContributions(output).numberingNeeded, []);
 });

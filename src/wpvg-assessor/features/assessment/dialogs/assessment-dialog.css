@@ -1,0 +1,308 @@
+/**
+ * @file src/wpvg-assessor/features/assessment/dialogs/assessment-dialog.css
+ * Purpose: Structural layouts for assessment forms, batch reviews, and compact mode.
+ *
+ * Table of contents:
+ * 1. Styles and responsive rules
+ */
+
+.sumire-wpvg-assessor-dialog.cdx-dialog {
+    max-width: 76rem;
+}
+
+.sumire-wpvg-assessor-dialog__actions {
+    align-items: center;
+    display: flex;
+    flex-wrap: nowrap;
+    gap: var(--spacing-75, 0.75rem);
+    justify-content: flex-end;
+    width: 100%;
+}
+
+.sumire-wpvg-assessor-dialog__actions--stacked {
+    align-items: stretch;
+    flex-direction: column;
+}
+
+.sumire-wpvg-assessor-batch-content {
+    min-block-size: 12rem;
+    position: relative;
+}
+
+.sumire-wpvg-assessor-batch-review {
+    display: grid;
+    gap: var(--spacing-150, 1.5rem);
+    min-inline-size: 0;
+}
+
+.sumire-wpvg-assessor-batch-instructions {
+    display: grid;
+    gap: var(--spacing-100, 1rem);
+}
+
+.sumire-wpvg-assessor-batch-instructions p {
+    margin: 0;
+}
+
+.sumire-wpvg-assessor-batch-table-scroll {
+    max-block-size: 52vh;
+    overflow: auto;
+}
+
+.sumire-wpvg-assessor-batch-table {
+    border-collapse: collapse;
+    inline-size: 100%;
+    text-align: start;
+}
+
+.sumire-wpvg-assessor-batch-table caption,
+.sumire-wpvg-assessor-sr {
+    clip-path: inset(50%);
+    height: 1px;
+    overflow: hidden;
+    position: absolute;
+    white-space: nowrap;
+    width: 1px;
+}
+
+.sumire-wpvg-assessor-batch-table th,
+.sumire-wpvg-assessor-batch-table td {
+    border: 1px solid var(--border-color-muted, #dadde3);
+    min-inline-size: 7rem;
+    overflow-wrap: anywhere;
+    padding: var(--spacing-75, 0.75rem);
+    vertical-align: top;
+}
+
+.sumire-wpvg-assessor-batch-table thead th {
+    background: var(--background-color-neutral-subtle, #f8f9fa);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.sumire-wpvg-assessor-batch-table .sumire-wpvg-assessor-batch-select,
+.sumire-wpvg-assessor-batch-table .sumire-wpvg-assessor-batch-actions {
+    inline-size: 1%;
+    min-inline-size: 2.5rem;
+    white-space: nowrap;
+}
+
+.sumire-wpvg-assessor-edit {
+    margin-inline-end: 0.25rem;
+}
+
+.sumire-wpvg-assessor-edit svg,
+.sumire-wpvg-assessor-trash svg {
+    display: block;
+}
+
+.sumire-wpvg-assessor-batch-table summary {
+    cursor: pointer;
+}
+
+.sumire-wpvg-assessor-batch-table details[open] summary {
+    margin-block-end: var(--spacing-50, 0.5rem);
+}
+
+.sumire-wpvg-assessor-batch-overlay {
+    align-items: flex-start;
+    background: var(--background-color-backdrop-light, #ffffffcc);
+    display: flex;
+    inset: 0;
+    justify-content: center;
+    padding: var(--spacing-150, 1.5rem);
+    position: absolute;
+    z-index: 2;
+}
+
+.sumire-wpvg-assessor-batch-progress {
+    display: grid;
+    gap: var(--spacing-50, 0.5rem);
+    inline-size: 28rem;
+    inset-block-start: 0;
+    max-inline-size: 100%;
+    overflow-wrap: anywhere;
+    position: sticky;
+}
+
+.sumire-wpvg-assessor-batch-progress p {
+    margin: 0;
+}
+
+.sumire-wpvg-assessor-dialog__body,
+.sumire-wpvg-assessor-assessment-grid,
+.sumire-wpvg-assessor-controls,
+.sumire-wpvg-assessor-mini__body,
+.sumire-wpvg-assessor-mini__form {
+    display: grid;
+    gap: var(--spacing-150, 1.5rem);
+    min-inline-size: 0;
+}
+
+.sumire-wpvg-assessor-dialog .sumire-wpvg-assessor-description {
+    margin: 0;
+}
+
+.sumire-wpvg-assessor-status-region:empty {
+    display: none;
+}
+
+.sumire-wpvg-assessor-status-region {
+    display: grid;
+    gap: var(--spacing-100, 1rem);
+}
+
+.sumire-wpvg-assessor-assessment-grid {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.sumire-wpvg-assessor-form-section {
+    display: grid;
+    gap: var(--spacing-100, 1rem);
+    grid-template-columns: minmax(0, 1fr);
+    min-inline-size: 0;
+}
+
+.sumire-wpvg-assessor-form-section > .cdx-field {
+    margin: 0;
+    min-inline-size: 0;
+}
+
+.sumire-wpvg-assessor-form-section > .sumire-wpvg-assessor-section-title {
+    border: 0;
+    font-size: var(--font-size-large, 1.125rem);
+    font-weight: var(--font-weight-bold, 700);
+    line-height: inherit;
+    margin: 0;
+    padding: 0;
+}
+
+.sumire-wpvg-assessor-video-games {
+    border: var(--border-width-base, 1px) solid
+        var(--border-color-muted, #dadde3);
+    border-radius: var(--border-radius-base, 2px);
+    padding: var(--spacing-75, 0.75rem);
+}
+
+.sumire-wpvg-assessor-dialog .sumire-wpvg-assessor-field-title {
+    margin: 0 0 var(--spacing-25, 0.25rem);
+}
+
+.sumire-wpvg-assessor-check-list,
+.sumire-wpvg-assessor-choice-list {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-75, 0.75rem);
+    overflow-wrap: anywhere;
+}
+
+.sumire-wpvg-assessor-custom-class-row {
+    align-items: center;
+    display: grid;
+    gap: var(--spacing-75, 0.75rem);
+    grid-template-columns: max-content minmax(0, 6rem);
+}
+
+.sumire-wpvg-assessor-check-list > .cdx-checkbox,
+.sumire-wpvg-assessor-choice-list > .cdx-radio,
+.sumire-wpvg-assessor-custom-class-row > .cdx-radio,
+.sumire-wpvg-assessor-mini__choices > .cdx-checkbox {
+    margin: 0;
+    min-inline-size: 0;
+    white-space: normal;
+}
+
+.sumire-wpvg-assessor-custom-class-input {
+    min-width: 0;
+}
+
+.sumire-wpvg-assessor-dialog .sumire-wpvg-assessor-comparison-help {
+    margin-block-end: var(--spacing-100, 1rem);
+}
+
+.sumire-wpvg-assessor-mini {
+    background-color: var(--background-color-base, #fff);
+    border: 1px solid var(--border-color-base, #a2a9b1);
+    border-radius: var(--border-radius-base, 2px);
+    box-shadow: 0 2px 6px var(--box-shadow-color-alpha-base, #0003);
+    box-sizing: border-box;
+    color: var(--color-base, #202122);
+    display: grid;
+    font-family: var(--font-family-base, sans-serif);
+    grid-template-rows: minmax(0, 1fr);
+    inline-size: 28rem;
+    inset-block-end: max(1rem, env(safe-area-inset-bottom));
+    inset-inline-end: max(1rem, env(safe-area-inset-right));
+    max-block-size: 75dvh;
+    max-inline-size: calc(100vw - 2rem);
+    overflow-wrap: anywhere;
+    padding: var(--spacing-150, 1.5rem);
+    position: fixed;
+    z-index: 500;
+}
+
+.sumire-wpvg-assessor-mini__layout {
+    display: grid;
+    gap: var(--spacing-150, 1.5rem);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    min-block-size: 0;
+    min-inline-size: 0;
+}
+
+.sumire-wpvg-assessor-mini__title {
+    border: 0;
+    font-size: var(--font-size-x-large, 1.25rem);
+    font-weight: var(--font-weight-bold, 700);
+    line-height: var(--line-height-x-large, 1.875rem);
+    margin: 0;
+    padding: 0;
+}
+
+.sumire-wpvg-assessor-mini__body {
+    grid-auto-rows: max-content;
+    min-block-size: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    padding-inline-end: var(--spacing-25, 0.25rem);
+}
+
+.sumire-wpvg-assessor-mini__state {
+    display: grid;
+    gap: var(--spacing-100, 1rem);
+    min-inline-size: 0;
+}
+
+.sumire-wpvg-assessor-mini__state p {
+    margin: 0;
+}
+
+.sumire-wpvg-assessor-mini__source {
+    min-inline-size: 0;
+}
+
+.sumire-wpvg-assessor-mini__actions,
+.sumire-wpvg-assessor-mini__choices {
+    display: grid;
+    gap: var(--spacing-75, 0.75rem);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.sumire-wpvg-assessor-mini__submit {
+    grid-column: 1 / -1;
+}
+
+@media (max-width: 639px) {
+    /* Codex uses its desktop label spacing at all widths in the host build. */
+    :is(
+            .sumire-wpvg-assessor-dialog,
+            .sumire-wpvg-assessor-mini,
+            .sumire-wpvg-assessor-category-dialog,
+            .sumire-wpvg-assessor-archive-dialog
+        )
+        .cdx-field
+        > .cdx-label:not(.cdx-label--visually-hidden) {
+        padding-block-end: var(--spacing-50, 0.5rem);
+    }
+}

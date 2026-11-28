@@ -61,11 +61,38 @@ test("Meta-Wiki adds an Edit contributions link beside the native Edit action", 
 function makeBrowser({
     sourceNamespace,
     sourceText,
-    targetMissing,
+    targetMissing = false,
+    targetText = "目标页面原有的内容。",
+    sourceHistory = [],
+    targetHistory = [],
+    historyBatchSize = Infinity,
     userLanguage = "en",
 }) {
     const sourceTitle = sourceNamespace === 0 ? articleTitle : draftTitle;
     const targetTitle = sourceNamespace === 0 ? draftTitle : articleTitle;
+    const source = {
+        pageid: 17,
+        ns: sourceNamespace,
+        title: sourceTitle,
+    };
+    const target = {
+        pageid: 23,
+        ns: sourceNamespace === 0 ? 118 : 0,
+        title: targetTitle,
+    };
+    const sourceRevisions = [
+        { revid: 42, timestamp: sourceTimestamp, text: sourceText },
+        ...sourceHistory,
+    ];
+    const targetRevision = {
+        revid: 66,
+        timestamp: targetTimestamp,
+        text: targetText,
+    };
+    const histories = [
+        [source, sourceRevisions],
+        [target, [targetRevision, ...targetHistory]],
+    ];
     const namespaceIds = {
         file: 6,
         文件: 6,
@@ -94,6 +121,13 @@ function makeBrowser({
             getMainText: () => mainText,
             getPrefixedText: () => prefix + mainText,
             getFragment: () => null,
+        };
+    }
+
+    function withContent({ text, ...revision }) {
+        return {
+            ...revision,
+            slots: { main: { content: text, contentmodel: "wikitext" } },
         };
     }
 
@@ -148,29 +182,70 @@ function makeBrowser({
         Api: class {
             async get(parameters) {
                 requests.push({ method: "get", parameters });
-                if (parameters.prop === "revisions") {
+                if (parameters.revids !== undefined) {
+                    assert.equal(parameters.prop, "revisions");
+                    for (const [page, revisions] of histories) {
+                        const revision = revisions.find(
+                            ({ revid }) => revid === parameters.revids,
+                        );
+                        if (revision) {
+                            return {
+                                query: {
+                                    pages: [
+                                        {
+                                            ...page,
+                                            revisions: [withContent(revision)],
+                                        },
+                                    ],
+                                },
+                            };
+                        }
+                    }
+                    return { query: { pages: [] } };
+                }
+                if (parameters.pageids !== undefined) {
+                    assert.equal(parameters.prop, "revisions");
+                    assert.equal(parameters.rvprop, "ids|timestamp|comment");
+                    const [page, revisions] = histories.find(
+                        ([page]) => page.pageid === parameters.pageids,
+                    );
+                    assert.equal(parameters.rvstartid, revisions[0].revid);
+                    const history = revisions.filter(
+                        ({ timestamp }) =>
+                            !parameters.rvend || timestamp >= parameters.rvend,
+                    );
+                    const offset = Number(parameters.rvcontinue ?? 0);
+                    if (offset) assert.equal(parameters.continue, "||");
+                    const end = offset + historyBatchSize;
                     return {
                         query: {
                             pages: [
                                 {
-                                    pageid: 17,
-                                    ns: sourceNamespace,
-                                    title: sourceTitle,
-                                    revisions: [
-                                        {
-                                            revid: 42,
-                                            timestamp: sourceTimestamp,
-                                            slots: {
-                                                main: {
-                                                    content: sourceText,
-                                                    contentmodel: "wikitext",
-                                                },
-                                            },
-                                        },
-                                    ],
+                                    ...page,
+                                    revisions: history
+                                        .slice(offset, end)
+                                        .map(
+                                            ({
+                                                revid,
+                                                timestamp,
+                                                comment,
+                                            }) => ({
+                                                revid,
+                                                timestamp,
+                                                comment,
+                                            }),
+                                        ),
                                 },
                             ],
                         },
+                        ...(end < history.length
+                            ? {
+                                  continue: {
+                                      continue: "||",
+                                      rvcontinue: String(end),
+                                  },
+                              }
+                            : {}),
                     };
                 }
                 assert.equal(parameters.prop, "info|revisions");
@@ -180,18 +255,13 @@ function makeBrowser({
                         tokens: { csrftoken: editToken },
                         pages: [
                             {
-                                ns: sourceNamespace === 0 ? 118 : 0,
-                                title: targetTitle,
+                                ...target,
                                 contentmodel: "wikitext",
                                 ...(targetMissing
-                                    ? { missing: true }
+                                    ? { pageid: undefined, missing: true }
                                     : {
-                                          pageid: 23,
                                           revisions: [
-                                              {
-                                                  revid: 66,
-                                                  timestamp: targetTimestamp,
-                                              },
+                                              withContent(targetRevision),
                                           ],
                                           watched: true,
                                           watchlistexpiry: watchExpiry,
@@ -297,6 +367,18 @@ function assertEditorSubmission(submissions, expectedTitle, expectedSource) {
     return fields;
 }
 
+function copySummary(title, { revid, timestamp }) {
+    const date = timestamp.replace("T", " ").replace("Z", " UTC");
+    return `拷貝自[[${title}]]（[[Special:PermaLink/${revid}|${date}]]版）`;
+}
+
+function draftWikitext(body, task = "") {
+    return (
+        `{{Draft|${articleTitle}}}\n{{Todo|inner=\n${task}}}\n` +
+        `{{Section sizes|bytes_heatmap=ignore_appendices}}\n\n${body}`
+    );
+}
+
 test("the article action classifies files and opens a native preview for its matching draft", async () => {
     const sourceText = [
         "{{Infobox",
@@ -369,7 +451,7 @@ test("the article action classifies files and opens a native preview for its mat
     );
 });
 
-test("the draft action restores edited article wikitext and opens a native diff", async () => {
+test("without a copy record, the draft action restores article wikitext and opens a native diff", async () => {
     const body = [
         "草稿中所作的编辑。",
         "<!-- [[File:Alias.jpg|thumb|图注]] // 根據[[WP:NFCC#9]]無效化檔案 -->",
@@ -415,11 +497,146 @@ test("the draft action restores edited article wikitext and opens a native diff"
             "",
         ].join("\n"),
     );
-    assert.equal(browser.requests.length, 2);
+    assert.equal(browser.requests.length, 4);
     assert.ok(
         browser.requests.every(
             ({ method, parameters }) =>
                 method === "get" && parameters.action === "query",
         ),
+    );
+});
+
+const articleBase = {
+    revid: 20,
+    timestamp: "2026-11-25T12:29:00Z",
+    text: "旧导言。\n原有正文。\n旧结尾。\n",
+};
+const firstCopy = {
+    revid: 24,
+    timestamp: "2026-11-25T12:30:00Z",
+    comment: copySummary(articleTitle, articleBase),
+};
+
+test("publishing a draft merges its changes with article edits since the recorded copy", async () => {
+    const browser = makeBrowser({
+        sourceNamespace: 118,
+        sourceText: draftWikitext("新导言。\n原有正文。\n旧结尾。\n"),
+        targetText: "旧导言。\n原有正文。\n条目的新结尾。\n",
+        sourceHistory: [firstCopy],
+        targetHistory: [articleBase],
+        historyBatchSize: 1,
+    });
+    await addDraftCopyAction(browser.mw, browser.document);
+    await browser.clickAction();
+
+    const fields = assertEditorSubmission(
+        browser.submissions,
+        articleTitle,
+        draftTitle,
+    );
+    assert.equal(fields.wpDiff, "1");
+    assert.equal(fields.editRevId, "66");
+    assert.equal(fields.wpTextbox1, "新导言。\n原有正文。\n条目的新结尾。\n");
+    assert.deepEqual(browser.notifications, []);
+    assert.ok(
+        browser.requests.some(
+            ({ parameters }) => parameters.rvcontinue === "1",
+        ),
+    );
+    assert.ok(
+        browser.requests.some(
+            ({ parameters }) => parameters.revids === articleBase.revid,
+        ),
+    );
+    assert.ok(
+        browser.requests.every(
+            ({ parameters }) => parameters.action === "query",
+        ),
+    );
+});
+
+test("updating an existing draft uses the most recent copy and preserves draft-only work", async () => {
+    const publishedDraft = {
+        revid: 31,
+        timestamp: "2026-11-25T12:31:00Z",
+        text: draftWikitext(
+            "旧导言。\n草稿第一次补充。\n旧结尾。\n",
+            "* 校对\n",
+        ),
+    };
+    const browser = makeBrowser({
+        sourceNamespace: 0,
+        sourceText:
+            "旧导言。\n草稿第一次补充。\n条目的新结尾。\n[[File:Alias.jpg]]\n",
+        sourceHistory: [
+            {
+                revid: 37,
+                timestamp: "2026-11-25T12:33:00Z",
+                comment: `${copySummary(draftTitle, publishedDraft)}，校对正文`,
+            },
+            articleBase,
+        ],
+        targetText: draftWikitext(
+            "旧导言。\n草稿第二次补充。\n旧结尾。\n",
+            "* 校对\n",
+        ),
+        targetHistory: [publishedDraft, firstCopy],
+    });
+    await addDraftCopyAction(browser.mw, browser.document);
+    await browser.clickAction();
+
+    const fields = assertEditorSubmission(
+        browser.submissions,
+        draftTitle,
+        articleTitle,
+    );
+    assert.equal(fields.wpDiff, "1");
+    assert.equal(fields.editRevId, "66");
+    assert.equal(
+        fields.wpTextbox1,
+        draftWikitext(
+            "旧导言。\n草稿第二次补充。\n条目的新结尾。\n" +
+                "<!-- [[File:Alias.jpg]] // 根據[[WP:NFCC#9]]無效化檔案 -->\n",
+            "* 校对\n",
+        ),
+    );
+    assert.deepEqual(browser.notifications, []);
+});
+
+test("overlapping changes ask for a manual merge without opening a replacement edit", async () => {
+    const browser = makeBrowser({
+        sourceNamespace: 118,
+        sourceText: draftWikitext("旧导言。\n草稿重写的正文。\n旧结尾。\n"),
+        targetText: "旧导言。\n条目重写的正文。\n旧结尾。\n",
+        sourceHistory: [firstCopy],
+        targetHistory: [articleBase],
+        userLanguage: "zh-cn",
+    });
+    await addDraftCopyAction(browser.mw, browser.document);
+    await browser.clickAction();
+
+    assert.deepEqual(browser.submissions, []);
+    assert.deepEqual(browser.notifications, [
+        [
+            "无法自动合并条目和草稿的改动。请比较两个页面并手动合并。",
+            { type: "error" },
+        ],
+    ]);
+});
+
+test("the copy base must be a revision of the linked counterpart", async () => {
+    const unrelated = { ...articleBase, text: "另一个页面的内容。" };
+    const browser = makeBrowser({
+        sourceNamespace: 118,
+        sourceText: draftWikitext("新导言。\n原有正文。\n旧结尾。\n"),
+        sourceHistory: [firstCopy, unrelated],
+    });
+    await addDraftCopyAction(browser.mw, browser.document);
+    await browser.clickAction();
+
+    assert.deepEqual(browser.submissions, []);
+    assert.match(
+        browser.notifications[0][0],
+        /could not be merged automatically/u,
     );
 });

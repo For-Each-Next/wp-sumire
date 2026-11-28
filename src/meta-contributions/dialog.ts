@@ -37,6 +37,7 @@ import {
     type ProfileRecordSectionId,
     type ProfileSectionId,
 } from "./profile-records.ts";
+import { formatRecordNumber, recordNumber } from "./profile-wikitext.ts";
 import {
     invalidTranslationField,
     parseTranslationNote,
@@ -350,6 +351,14 @@ export async function openProfileDialog({
                         activeTab.value === "contributions" &&
                         !changedRecordSections.value.length),
             );
+            const recordSectionsToReview = computed(() => {
+                const tab = activeTab.value;
+                return !dirty.value &&
+                    tab !== "contributions" &&
+                    recordSections[tab]?.needsNumbering
+                    ? [tab]
+                    : changedRecordSections.value;
+            });
             const summaryOverride = ref<string | null>(null);
             const activeSection = ref<ContributionSectionId | null>(
                 draft.value[0]?.id ?? null,
@@ -381,7 +390,8 @@ export async function openProfileDialog({
                     !busy.value &&
                     !pendingPreview.value &&
                     removing.value === null &&
-                    (dirty.value || includeContributions.value),
+                    (includeContributions.value ||
+                        recordSectionsToReview.value.length > 0),
             );
             const itemPreview = ref<ItemPreview>({ state: "empty" });
             const requestError = ref("");
@@ -556,16 +566,27 @@ export async function openProfileDialog({
                         group: group.id,
                         defaultSite: group.defaultSite,
                         entry: serialized.entries[0],
+                        number: recordNumber(
+                            group.id,
+                            group.entries.indexOf(entry),
+                            group.entries.length,
+                        ),
                     };
                 }
                 const data = recordSections[section];
-                const entry = selectedEntry(section, records.value[section]);
+                const entries = records.value[section];
+                const entry = selectedEntry(section, entries);
                 if (!data || !entry || !hasRecordContent(section, entry))
                     return null;
                 return {
                     section,
                     defaultSite: data.defaultSite,
                     entry: { id: entry.id, fields: { ...entry.fields } },
+                    number: recordNumber(
+                        section,
+                        entries.indexOf(entry),
+                        entries.length,
+                    ),
                 };
             }
 
@@ -695,7 +716,7 @@ export async function openProfileDialog({
                     edits.contributions = sections;
                 }
                 invalidRecord.value = null;
-                for (const section of changedRecordSections.value) {
+                for (const section of recordSectionsToReview.value) {
                     const entries = records.value[section];
                     const [key] = requiredProfileFields[section];
                     const entry = entries.find(
@@ -1428,13 +1449,18 @@ export async function openProfileDialog({
             }
 
             function renderList<T extends { id: string }>(
+                section: ContributionSectionId | ProfileRecordSectionId,
                 entries: T[],
                 selected: T | undefined,
+                matches: (entry: T) => boolean,
                 select: (entry: T) => void,
                 name: (entry: T) => string,
                 chips: (entry: T) => VNode[],
             ) {
-                if (!entries.length) {
+                const visible = entries
+                    .map((entry, index) => ({ entry, index }))
+                    .filter(({ entry }) => matches(entry));
+                if (!visible.length) {
                     return h(
                         "p",
                         { class: "contrib-help" },
@@ -1446,8 +1472,11 @@ export async function openProfileDialog({
                 return h(
                     "ul",
                     { class: "contrib-list" },
-                    entries.map((entry) => {
+                    visible.map(({ entry, index }) => {
                         const title = name(entry);
+                        const number = formatRecordNumber(
+                            recordNumber(section, index, entries.length),
+                        );
                         const parts = title.split(
                             /(?<!')''(?!')(.+?)(?<!')''(?!')/gsu,
                         );
@@ -1465,6 +1494,11 @@ export async function openProfileDialog({
                                 },
                                 {
                                     default: () => [
+                                        h(
+                                            "span",
+                                            { class: "contrib-entry-number" },
+                                            `${number} `,
+                                        ),
                                         h(
                                             "span",
                                             {
@@ -1524,18 +1558,16 @@ export async function openProfileDialog({
                 selected: EditorEntry | undefined,
             ) {
                 const query = search.value.trim().toLocaleLowerCase();
-                const entries = section.entries.filter(
-                    (entry) =>
-                        !query ||
-                        [
-                            contributionName(entry).replace(/'{2,}/gu, ""),
-                            entry.title,
-                            entry.label,
-                            entry.site || section.defaultSite,
-                        ].some((value) =>
-                            value.toLocaleLowerCase().includes(query),
-                        ),
-                );
+                const matches = (entry: EditorEntry) =>
+                    !query ||
+                    [
+                        contributionName(entry).replace(/'{2,}/gu, ""),
+                        entry.title,
+                        entry.label,
+                        entry.site || section.defaultSite,
+                    ].some((value) =>
+                        value.toLocaleLowerCase().includes(query),
+                    );
                 return [
                     renderListControls(
                         prefilling.value
@@ -1546,8 +1578,10 @@ export async function openProfileDialog({
                         },
                     ),
                     renderList(
-                        entries,
+                        section.id,
+                        section.entries,
                         selected,
+                        matches,
                         (entry) => selectEntry(section, entry),
                         contributionName,
                         (entry) => contributionChips(section, entry),
@@ -1633,13 +1667,11 @@ export async function openProfileDialog({
                     );
                 };
                 const query = search.value.trim().toLocaleLowerCase();
-                const filtered = entries.filter(
-                    ({ fields }) =>
-                        !query ||
-                        Object.values(fields).some((value) =>
-                            value.toLocaleLowerCase().includes(query),
-                        ),
-                );
+                const matches = ({ fields }: ProfileRecord) =>
+                    !query ||
+                    Object.values(fields).some((value) =>
+                        value.toLocaleLowerCase().includes(query),
+                    );
                 const addLabel = {
                     barnstars: messages.addBarnstar,
                     quotations: messages.addQuotation,
@@ -1674,8 +1706,10 @@ export async function openProfileDialog({
                         [
                             renderListControls(addLabel[section], add),
                             renderList(
-                                filtered,
+                                section,
+                                entries,
                                 selected,
+                                matches,
                                 (entry) => {
                                     selectedIds.value[section] = entry.id;
                                     removing.value = null;

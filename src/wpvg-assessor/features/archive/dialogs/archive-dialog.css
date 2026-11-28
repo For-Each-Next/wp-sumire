@@ -1,0 +1,82 @@
+/**
+ * @file src/wpvg-assessor/features/archive/dialogs/archive-dialog.css
+ * Purpose: Scoped archive review source, feedback, and responsive actions.
+ *
+ * Table of contents:
+ * 1. Styles and responsive rules
+ */
+
+.sumire-wpvg-assessor-archive-dialog.cdx-dialog {
+    max-width: 64rem;
+}
+
+.sumire-wpvg-assessor-archive-body {
+    display: grid;
+    gap: var(--spacing-150, 1.5rem);
+    min-inline-size: 0;
+}
+
+.sumire-wpvg-assessor-archive-body p,
+.sumire-wpvg-assessor-archive-page h2,
+.sumire-wpvg-assessor-archive-body > .cdx-field {
+    margin: 0;
+}
+
+.sumire-wpvg-assessor-archive-overview,
+.sumire-wpvg-assessor-archive-feedback,
+.sumire-wpvg-assessor-archive-page {
+    display: grid;
+    gap: var(--spacing-100, 1rem);
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+}
+
+.sumire-wpvg-assessor-archive-feedback:empty {
+    display: none;
+}
+
+.sumire-wpvg-assessor-archive-page-heading {
+    display: grid;
+    gap: var(--spacing-25, 0.25rem);
+}
+
+.sumire-wpvg-assessor-archive-page-heading h2 {
+    border: 0;
+    font-size: var(--font-size-large, 1.125rem);
+    font-weight: var(--font-weight-bold, 700);
+    line-height: inherit;
+    padding: 0;
+}
+
+.sumire-wpvg-assessor-archive-page pre {
+    margin: 0;
+    padding: var(--spacing-75, 0.75rem);
+    background: var(--background-color-neutral-subtle, #f8f9fa);
+    border: 1px solid var(--border-color-subtle, #c8ccd1);
+    color: var(--color-base, #202122);
+    font-size: var(--font-size-small, 0.875rem);
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.sumire-wpvg-assessor-archive-page pre:focus-visible {
+    outline: 2px solid var(--outline-color-progressive--focus, #36c);
+    outline-offset: 2px;
+}
+
+.sumire-wpvg-assessor-archive-actions {
+    display: flex;
+    gap: var(--spacing-75, 0.75rem);
+    justify-content: flex-end;
+}
+
+@media (max-width: 40rem) {
+    .sumire-wpvg-assessor-archive-dialog.cdx-dialog {
+        width: 100%;
+    }
+
+    .sumire-wpvg-assessor-archive-actions {
+        flex-direction: column;
+    }
+}
