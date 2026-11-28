@@ -1,6 +1,8 @@
 name: Release
 
 on:
+    push:
+        branches: [trunk]
     workflow_dispatch:
         inputs:
             tag:
@@ -17,8 +19,8 @@ permissions:
 
 jobs:
     release:
-        uses: For-Each-Next/wp/.github/workflows/release.yml@c3152e19c67a40348db3bfb3bf8329fd5e4469d8
+        uses: For-Each-Next/wp/.github/workflows/release.yml@43223ba7e7dec9a2e559d8928bc86806b0bb3e36
         with:
             tag: ${{ inputs.tag }}
-            publish: ${{ inputs.publish }}
+            publish: ${{ github.event_name == 'push' || inputs.publish }}
             install-browser: true

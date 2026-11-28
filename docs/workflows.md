@@ -131,9 +131,10 @@ and checks the distribution in `dist/` and runs the Article Assessor browser
 tests. The artifact tests exercise manager and native startup. Verification
 uses local fixtures for wiki interactions.
 
-Dispatch **Release** with publication disabled to verify the selected ref
-or a supplied release tag. To publish, provide the annotated `v<version>`
-tag and enable **Publish the verified release**.
+Sync the new version in `package.json` and `package-lock.json` and push the
+increase to `trunk`. **Release** verifies the build, creates the annotated
+`v<version>` tag, and publishes its assets. GitHub Actions keeps the
+manual release form available for rehearsals and existing tags.
 
 [tampermonkey]: https://www.tampermonkey.net/documentation.php
 [wp-workflows]: https://github.com/For-Each-Next/wp/blob/trunk/docs/workflows.md
