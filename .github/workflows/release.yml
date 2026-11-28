@@ -19,7 +19,7 @@ permissions:
 
 jobs:
     release:
-        uses: For-Each-Next/wp/.github/workflows/release.yml@43223ba7e7dec9a2e559d8928bc86806b0bb3e36
+        uses: For-Each-Next/wp/.github/workflows/release.yml@f673d970301f7ad35935713f94592ca25d58a168
         with:
             tag: ${{ inputs.tag }}
             publish: ${{ github.event_name == 'push' || inputs.publish }}
